@@ -290,6 +290,7 @@ function applyRevision(id: string) {
   if (!revision) throw new Error("Unknown revision");
   activeRevision = revision;
   isolatedAsset = null;
+  renderer.setClearColor(data.source_kind === "object_probe" ? "#66716a" : "#101919");
   document.querySelectorAll<HTMLButtonElement>("[data-isolate]").forEach((button) => {
     button.textContent = "Inspect";
     button.setAttribute("aria-pressed", "false");
@@ -482,6 +483,7 @@ async function isolateAsset(id: string | null) {
     throw new Error("Unknown asset");
   isolatedAsset = id;
   if (id !== null) {
+    renderer.setClearColor("#39433e");
     loaded.forEach((entry) => { entry.root.visible = entry.asset.id === id; });
     repairs.visible = false;
   }
@@ -671,6 +673,7 @@ async function loadScene(id: string) {
   $("source-note").textContent = data.description;
   displayCameras();
   await Promise.all(data.assets.map(loadAsset));
+  updateLayerVisibility();
   displayAssets();
   displayRevisions();
   applyRevision(
@@ -759,16 +762,25 @@ $("revision-select").onchange = () =>
   applyRevision($<HTMLSelectElement>("revision-select").value);
 $("original").onclick = () => applyRevision(data.revisions[0].id);
 $("current").onclick = () => applyRevision(data.current_revision);
-$("appearance").onchange = () =>
+function updateLayerVisibility() {
+  const appearance = $<HTMLInputElement>("appearance").checked;
+  const collision = $<HTMLInputElement>("colliders").checked;
   loaded.forEach((e) => {
-    if (e.splat) e.splat.visible = $<HTMLInputElement>("appearance").checked;
-    if (e.appearance) e.appearance.visible = $<HTMLInputElement>("appearance").checked;
+    if (e.splat) e.splat.visible = appearance;
+    if (e.appearance) e.appearance.visible = appearance;
+    if (e.collider) {
+      e.collider.visible = collision;
+      e.collider.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          materials.forEach(material => {material.opacity = appearance ? 0.035 : 0.3;});
+        }
+      });
+    }
   });
-$("colliders").onchange = () =>
-  loaded.forEach((e) => {
-    if (e.collider)
-      e.collider.visible = $<HTMLInputElement>("colliders").checked;
-  });
+}
+$("appearance").onchange = updateLayerVisibility;
+$("colliders").onchange = updateLayerVisibility;
 $("grid").onchange = () => (grid.visible = $<HTMLInputElement>("grid").checked);
 $("export").onclick = () => {
   const blob = new Blob(

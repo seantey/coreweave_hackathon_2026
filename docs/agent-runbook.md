@@ -119,7 +119,9 @@ uv run python scripts/check-revisions.py --scene chair-probe
 
 The browser check currently expects the local `chair-probe` scene and produces ignored screenshots in `.artifacts/`. Unit tests use temporary data. These checks establish application mechanics; visual model reliability and real-room success require separate evidence.
 
-## Evidence checkpoint — September 13, 2026
+## Historical early checkpoint — September 13, 2026
+
+This section records the early build. Later sections supersede its test counts, prompt versions and pending statuses.
 
 - Twenty-nine local tests pass, including rejection/retry behavior with **mocked** model responses. This does not establish vision-model reliability.
 - An actual rendered mechanics test cut the chair splat and reduced collider triangles from 269,740 to 227,452. Rollback restored 269,740 triangles and the original screenshot exactly. It also verified reversible activation of a library asset. The deliberate test cut was not an agent-discovered defect or a useful restoration. Artifacts are local under `.artifacts/revision-check/`.
@@ -161,7 +163,7 @@ The expanded region-removal test now covers actual mesh appearance and collision
 
 `partition-layer SCENE ASSET SEGMENTATION_JSON PANORAMA` partitions a Hunyuan mesh before any edits. It verifies pixel equality against both the segmentation source and the imported layer source, projects triangle centers using Hunyuan's spherical camera convention, and assigns every triangle exactly once. Overlapping masks use confidence order. All original triangles remain; this creates independently addressable partial objects without claiming complete hidden geometry or improved reconstruction. Original scene and partition records are saved per layer. Coordinate and triangle-conservation tests pass; live office partition retained all 198,192 triangles and the Forward screenshot was pixel-identical. Six chair candidates received independent geometry and colliders.
 
-Each object row now has an Inspect control to isolate that asset and Show room to restore the full revision. This is a view operation, not a saved edit. Appearance visibility covers meshes and splats. The viewer prefers a scene named `office` when available.
+Each object row now has an Inspect control to isolate that asset and Show room to restore the full revision. This is a view operation, not a saved edit. Appearance visibility covers meshes and splats. The current scene preference is `office-clean`, then `office-textured`, then `office`.
 
 ## Source completion before reconstruction
 
@@ -169,10 +171,10 @@ Each object row now has an Inspect control to isolate that asset and Show room t
 
 `reconstruct-completion RUN_ID --scene SCENE_ID --reference ORIGINAL_PHOTO` requires an explicitly accepted completion and an exact 2:1 panorama, then checkpoints Hunyuan generation and imports its world. It does not declare the new geometry validated. Run scene inspection and object partitioning on the actual output. The original photo remains evidence; a generated panoramic extension is inferred, not recovered camera coverage.
 
-The actual Hunyuan occupied-panorama result detected only two people. Its supposedly completed background visibly retained several occupants. The new source-completion loop correctly rejected that image for remaining people; correction is processing. This is a recorded provider failure, not an authored test defect. The corrected world archive transfer is ongoing; byte-range downloads now resume individual parts and reject changed archive versions or incorrect server ranges. Three download tests and two completion feedback/checkpoint tests pass, bringing local tests to 34. The Nano Banana 2 request follows the [official fal schema](https://fal.ai/models/fal-ai/nano-banana-2/edit/api); live editing success is not yet established.
+**Historical checkpoint:** The actual Hunyuan occupied-panorama result detected only two people. Its supposedly completed background visibly retained several occupants. The new source-completion loop correctly rejected that image for remaining people; correction is processing. This is a recorded provider failure, not an authored test defect. The corrected world archive transfer is ongoing; byte-range downloads now resume individual parts and reject changed archive versions or incorrect server ranges. Three download tests and two completion feedback/checkpoint tests pass, bringing local tests to 34. The Nano Banana 2 request follows the [official fal schema](https://fal.ai/models/fal-ai/nano-banana-2/edit/api); live editing success is not yet established.
 
 
-### Current live findings
+### Earlier live findings — superseded by the latest checkpoint below
 
 The `office-textured` scene renders the occupied panoramic office and its extracted chair candidates; `office` retains the earlier low-quality vertex-color representation for evidence. Neither is a cleaned office. The UI prefers `office-clean` when available, then `office-textured`, then `office`. Source video is attached as an additional unregistered viewpoint. Object inspection automatically frames the selected asset; extraction can leave missing legs or hidden surfaces. Do not call these complete furniture models.
 
@@ -180,4 +182,27 @@ The source-completion run generated a first candidate with most occupants remove
 
 Person audits run when broad review claims absence, and can block approval. Their crop sheets, detector boxes, classifications, and alternate plans are preserved separately from the original broad verdict. Original criteria remain `source-preservation-v1`; additional evidence does not overwrite old judgments. Exact echoed version metadata is normalized without relaxing verdict types. Source/run mismatches are rejected.
 
-The first live 3D loop inspected two layers, then failed edit validation because the model returned null for an irrelevant color field. No scene changed. The v6 loop normalizes that unused default and retains prior inspection findings so the model can explicitly address contradictions such as calling an asset person-only while acknowledging a fused chair. It is running again. [First office inspection trace](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09bc4-fa19-73bc-ab36-8cfe3ae7f462).
+The first live 3D loop inspected two layers, then failed edit validation because the model returned null for an irrelevant color field. No scene changed. The v6 loop normalizes that unused default and retains prior inspection findings so the model can explicitly address contradictions such as calling an asset person-only while acknowledging a fused chair. Its completed result is recorded in the latest checkpoint below. [First office inspection trace](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09bc4-fa19-73bc-ab36-8cfe3ae7f462).
+
+
+## Latest checkpoint — September 13, 10:49 AM PDT
+
+The source run `office-panorama-masked` passed its **visible 2D input** review after one additional preservation correction. `summary.json` records two evaluations, rejected then accepted. The final broad review retained uncertainties; a separate typed, indexed crop review resolved visible questions and retained hidden surfaces as inferred. Original judgments remain saved. These model assessments are fallible, not ground truth. SAM returned no person candidates on this final input; that result alone was not sufficient for approval.
+
+The orchestrated `restore-room` process submitted Hunyuan generation from that accepted input and is running. The provider has moved from queued to generating. The `office-clean` scene has not yet been imported at this checkpoint. Do not equate accepted input with a verified clean room.
+
+The earlier 3D run `loop-72cd9f125a21` completed: a proposed layer hide was rejected because the occupant remained; further isolation found people baked into protected background geometry. There is **no accepted autonomous 3D repair**. The evaluator called matching images identical, but measured Forward change was 0.138%; Right and Back were unchanged. This discrepancy is disclosed in the recorded demo.
+
+A targeted crop edit removed the small residual person after whole-panorama edits failed. A subsequent assistant-led mask-compositing refinement reused that generated patch and changed about 0.041% of the panorama. The final source run starts from that selected checkpoint. Do not present the selected branches and tool-development refinements as one uninterrupted autonomous run.
+
+The full orchestration command accepts configurable paths:
+
+```sh
+uv run python -m backend.cli restore-room /path/to/occupied-panorama.png \
+  --id my-restoration --scene my-room --reference /path/to/original.jpg \
+  --initial-candidate /path/to/candidate.png --max-edits 3 --inspection-passes 2
+```
+
+`--initial-candidate` is optional. It executes source review/correction, approved-input world generation and import, chair detection/partition where supported, then the 3D inspection loop. Provider jobs are checkpointed; if a wait times out, rerun the same command and identifiers to resume without resubmitting. Do not start a second copy while the existing process is still running. Source-image and segmentation checkpoints replay; the 3D loop itself can start another bounded inspection on a rerun.
+
+The `/demo.html` presentation, 69-second silent MP4, and private snapshot are prepared. See [demo.md](demo.md) for a three-minute walkthrough, evidence boundaries and reproduction commands. The package contains the occupied scene until the clean scene is verified and repackaged. All 41 Python tests and the five-chapter browser check pass; production build passes. Latest local commits: `e85d01a` and `b1fadec`.
