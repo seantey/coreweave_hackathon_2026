@@ -103,9 +103,9 @@ def import_scene(args):
                 label=args.title,
                 kind="splat",
                 path=copy_asset(args.splat, args.id),
-                collider_path=copy_asset(args.collider, args.id)
-                if args.collider
-                else None,
+                collider_path=(
+                    copy_asset(args.collider, args.id) if args.collider else None
+                ),
                 provenance="Imported reconstruction; geometric accuracy unverified",
             )
         ],
@@ -129,6 +129,15 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("reconstruct-completion")
+    p.add_argument("run_id")
+    p.add_argument("--scene", required=True)
+    p.add_argument("--reference", required=True)
+    p = commands.add_parser("complete-image")
+    p.add_argument("source")
+    p.add_argument("--id", required=True)
+    p.add_argument("--initial-candidate")
+    p.add_argument("--max-edits", type=int, default=3)
     p = commands.add_parser("partition-layer")
     p.add_argument("scene")
     p.add_argument("asset")
@@ -237,7 +246,33 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "partition-layer":
+    if args.command == "reconstruct-completion":
+        from .completion import reconstruct_completion
+        from . import agent
+
+        agent.initialize_tracing()
+        try:
+            print(
+                json.dumps(
+                    reconstruct_completion(args.run_id, args.scene, args.reference),
+                    indent=2,
+                )
+            )
+        finally:
+            if agent.CLIENT:
+                agent.CLIENT.flush()
+    elif args.command == "complete-image":
+        from .completion import run_completion
+
+        print(
+            json.dumps(
+                run_completion(
+                    args.source, args.id, args.max_edits, args.initial_candidate
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "partition-layer":
         from .partition import partition_layer
 
         print(
@@ -397,12 +432,14 @@ def main():
                 label=args.label,
                 kind=args.kind,
                 path=copy_asset(args.path, args.scene),
-                collider_path=copy_asset(args.collider, args.scene)
-                if args.collider
-                else None,
-                collider_matrix=tuple(json.loads(args.collider_matrix))
-                if args.collider_matrix
-                else None,
+                collider_path=(
+                    copy_asset(args.collider, args.scene) if args.collider else None
+                ),
+                collider_matrix=(
+                    tuple(json.loads(args.collider_matrix))
+                    if args.collider_matrix
+                    else None
+                ),
                 initially_visible=False,
                 provenance=args.provenance,
             )

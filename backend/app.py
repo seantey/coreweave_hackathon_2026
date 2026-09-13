@@ -53,6 +53,27 @@ def scenes():
     ]
 
 
+@app.get("/api/completions")
+def completions():
+    records = []
+    for directory in sorted((DATA / "completion").glob("*")):
+        if not directory.is_dir():
+            continue
+        summary_path = directory / "summary.json"
+        if not summary_path.exists():
+            records.append(
+                {"run_id": directory.name, "status": "Inspecting source", "history": []}
+            )
+            continue
+        summary = json.loads(summary_path.read_text())
+        steps = []
+        for step in summary["history"]:
+            evaluation = json.loads(media_path(step["evaluation"]).read_text())
+            steps.append({**step, "assessment": evaluation["assessment"]})
+        records.append({**summary, "history": steps})
+    return records
+
+
 @app.get("/api/scenes/{scene_id}")
 def scene(scene_id: str):
     try:

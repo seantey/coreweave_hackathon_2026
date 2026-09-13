@@ -111,7 +111,7 @@ document.querySelector("#app")!.innerHTML = `
 <header><a class="brand" href="/"><span class="mark">cr<span>i</span></span><span>Clean Room<br><strong>Imputation</strong></span></a><div class="project-picker"><span class="eyebrow">WORKSPACE</span><select id="scene-select" aria-label="Scene"></select></div><div class="header-status"><span class="status-dot"></span><span id="connection">Connecting</span></div><button id="export" class="quiet">Export scene record ↗</button></header>
 <main><aside class="left-panel"><div class="eyebrow">THE ORIGINAL, RECONSIDERED</div><h1>Same room.<br><span>No one there.</span></h1><p class="intro">Restore what belongs. Reconstruct what was hidden.</p><section><div class="section-heading"><h2>Source evidence</h2><span id="source-count"></span></div><div id="references"></div><p id="source-note" class="small"></p></section><section><div class="section-heading"><h2>Scene objects</h2><span id="object-count"></span></div><div id="assets"></div></section><section class="goal-card"><span class="eyebrow">PRESERVATION FIRST</span><p id="goal"></p></section></aside>
 <section class="stage"><div class="stage-heading"><div><span class="eyebrow" id="scene-type">RECONSTRUCTION</span><h2 id="scene-title">Loading workspace…</h2></div><span class="pill" id="revision-label">Original</span></div><div id="viewport"><div id="loading"><span class="spinner"></span><p>Opening the scene</p></div><div class="viewport-caption"><span id="camera-label">Inspection view</span><span>Drag to orbit · Scroll to explore</span></div><div id="scene-warning"></div></div><div class="toolbar"><div id="cameras"></div><div class="toggles"><label><input type="checkbox" id="appearance" checked> Appearance</label><label><input type="checkbox" id="colliders"> Collision</label><label><input type="checkbox" id="grid"> Grid</label><button id="capture" class="quiet">Capture view</button></div></div><div class="revision-bar"><div><span class="eyebrow">SCENE HISTORY</span><select id="revision-select" aria-label="Scene revision"></select></div><button id="original" class="quiet">View original</button><button id="current" class="quiet">View accepted</button></div><div id="notice" role="status">Source imagery is evidence. Reconstructed hidden surfaces remain inferred.</div></section>
-<aside class="right-panel"><div class="section-heading"><h2>Restoration loop</h2><span class="pill" id="loop-state">Ready</span></div><p class="small">Inspect → propose → compare → retain or undo.</p><button id="run-loop" class="primary">Start inspection loop <span>↗</span></button><div class="run-options"><label>Maximum passes <select id="passes"><option>1</option><option selected>2</option><option>3</option></select></label><span>Uses inference credits</span></div><div class="evidence-heading"><span class="eyebrow">DECISIONS & EVIDENCE</span><button id="refresh" class="quiet">↻</button></div><div id="events" aria-live="polite"><div class="empty-state">Every change needs a reason.<br><span>Inspection evidence will appear here.</span></div></div><details class="tools"><summary>Agent tool console</summary><p class="small">Create a reversible candidate. It is not accepted automatically.</p><textarea id="edit-json" aria-label="Edit JSON" spellcheck="false"></textarea><button id="propose" class="quiet">Preview candidate</button><button id="accept" class="quiet">Accept candidate</button><button id="reject" class="quiet">Reject candidate</button></details></aside></main>`;
+<aside class="right-panel"><div class="section-heading"><h2>Restoration loop</h2><span class="pill" id="loop-state">Ready</span></div><p class="small">Inspect → propose → compare → retain or undo.</p><button id="run-loop" class="primary">Start inspection loop <span>↗</span></button><div class="run-options"><label>Maximum passes <select id="passes"><option>1</option><option selected>2</option><option>3</option></select></label><span>Uses inference credits</span></div><div class="evidence-heading"><span class="eyebrow">DECISIONS & EVIDENCE</span><button id="refresh" class="quiet">↻</button></div><div id="events" aria-live="polite"><div class="empty-state">Every change needs a reason.<br><span>Inspection evidence will appear here.</span></div></div><section id="completion-evidence"></section><details class="tools"><summary>Agent tool console</summary><p class="small">Create a reversible candidate. It is not accepted automatically.</p><textarea id="edit-json" aria-label="Edit JSON" spellcheck="false"></textarea><button id="propose" class="quiet">Preview candidate</button><button id="accept" class="quiet">Accept candidate</button><button id="reject" class="quiet">Reject candidate</button></details></aside></main>`;
 
 const canvasHost = $("viewport");
 const renderer = new THREE.WebGLRenderer({
@@ -681,6 +681,22 @@ async function refreshEvents() {
     })
     .join("");
 }
+async function refreshCompletion() {
+  if (captureMode) return;
+  const runs = await api("completions");
+  $("completion-evidence").innerHTML = runs.map((run: any) => `
+    <div class="section-heading"><h2>Source completion</h2><span class="pill">${run.accepted ? "Input approved" : "Under review"}</span></div>
+    <p class="small">Image preparation before 3D reconstruction. These judgments do not validate collision geometry.</p>
+    ${run.history.map((step: any, index: number) => `<article class="completion-step">
+      <a href="${media(step.candidate)}" target="_blank"><img src="${media(step.candidate)}" alt="Source completion pass ${index}"></a>
+      <strong>Pass ${index} · ${step.accepted ? "Approved as input" : "Needs correction"}</strong>
+      <p>${escape(step.assessment.evidence)}</p>
+      ${step.assessment.remaining_issues.length ? `<ul>${step.assessment.remaining_issues.map((issue: string) => `<li>${escape(issue)}</li>`).join("")}</ul>` : ""}
+    </article>`).join("")}
+    ${!run.history.length ? `<p class="small">Inspecting the source image…</p>` : ""}
+  `).join("");
+}
+if (!captureMode) setInterval(() => { void safeAction(refreshEvents)(); void safeAction(refreshCompletion)(); }, 8000);
 $("assets").onclick = (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-isolate]");
   if (button) void safeAction(() => isolateAsset(isolatedAsset === button.dataset.isolate ? null : button.dataset.isolate!))();
@@ -802,5 +818,6 @@ async function start() {
   const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
   $<HTMLSelectElement>("scene-select").value = id;
   await loadScene(id);
+  await refreshCompletion();
 }
 safeAction(start)();

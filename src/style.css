@@ -630,3 +630,12 @@ textarea {
     flex-wrap: wrap;
   }
 }
+
+#completion-evidence { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+#completion-evidence:empty { display: none; }
+.completion-step { margin: 14px 0; font-size: 11px; line-height: 1.6; }
+.completion-step img { width: 100%; border-radius: 6px; margin-bottom: 7px; }
+.completion-step p, .completion-step li { color: var(--muted); font-size: 10px; }
+.asset-row { flex-wrap: wrap; }
+.asset-row > div { flex: 1; min-width: 80px; }
+.asset-row .quiet { padding: 5px 7px; }

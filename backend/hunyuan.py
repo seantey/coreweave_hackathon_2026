@@ -4,11 +4,11 @@ import json
 import math
 import zipfile
 from pathlib import Path
-import httpx
 import numpy as np
 import trimesh
 from scipy.spatial import cKDTree
 from PIL import Image
+from .download import download_archive
 from .models import Asset, Bounds, Camera, Revision, Scene, Transform
 from .storage import DATA, scene_path, save_scene, timestamp, write_json, event
 
@@ -20,16 +20,7 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
         raise ValueError("Scene already exists; preserve prior revisions")
     result = json.loads((job_path.parent / "result.json").read_text())
     archive = job_path.parent / "world.zip"
-    if not archive.exists():
-        with httpx.stream(
-            "GET", result["world_file"]["url"], timeout=120, follow_redirects=True
-        ) as response:
-            response.raise_for_status()
-            temporary = archive.with_suffix(".partial")
-            with temporary.open("wb") as output:
-                for chunk in response.iter_bytes():
-                    output.write(chunk)
-            temporary.replace(archive)
+    download_archive(result["world_file"]["url"], archive)
     extracted = job_path.parent / "layers"
     extracted.mkdir(exist_ok=True)
     with zipfile.ZipFile(archive) as source:
@@ -50,7 +41,8 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
     directory.mkdir(parents=True, exist_ok=True)
     assets = []
     records = []
-    for index, path in enumerate(sorted(extracted.glob("mesh_layer*.ply"))):
+    for path in sorted(extracted.glob("mesh_layer*.ply")):
+        index = int(path.stem.removeprefix("mesh_layer"))
         mesh = trimesh.load(path, process=False)
         original_count = len(mesh.faces)
         budget = 150_000 if index < 2 else 400_000 if index == 2 else 40_000
