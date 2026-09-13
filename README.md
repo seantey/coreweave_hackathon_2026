@@ -13,6 +13,20 @@ Explore an office reconstruction and switch between its original and repaired ge
 - **Inspect geometry:** switch between Collision mesh and Textured view.
 - **Understand the loop:** expand the short explanation below the viewer.
 
+### Before and after
+
+Actual renders of the same office from the same camera. The repaired scene replaces the broken table and chairs and removes the floating foreground remnant.
+
+| Before repair | After repair |
+| --- | --- |
+| ![Office reconstruction before furniture repair](docs/images/office-before.webp) | ![Office after table, chair, and foreground cleanup](docs/images/office-after.webp) |
+
+### Collision geometry
+
+![Repaired office collision mesh with the folding table and two chairs](docs/images/office-collision.webp)
+
+The wireframe shows the actual collision geometry. Remaining reconstruction defects are visible; this is not a validated physics simulation.
+
 With the local demo data installed, open **http://127.0.0.1:8000/**.
 
 ## The repair loop
@@ -79,7 +93,7 @@ npm run build
 uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-**Office media, generated assets, and recorded demo data are not included in this public repository.** A fresh clone needs a local data package to replay the office demo. To work with your own assets, follow the [import and agent workflow instructions](docs/agent-runbook.md), then open the workspace at `http://127.0.0.1:8000/?workspace=1`.
+**Full office media, generated 3D assets, and recorded demo data are not included in this public repository.** The compressed screenshots above are included for a quick preview. A fresh clone needs a local data package to replay the office demo. To work with your own assets, follow the [import and agent workflow instructions](docs/agent-runbook.md), then open the workspace at `http://127.0.0.1:8000/?workspace=1`.
 
 For frontend development, run `npm run dev` alongside the backend. The development viewer uses port 5173.
 
@@ -107,4 +121,4 @@ The browser checks exercise movement, revision comparison, and presentation cont
 - [Build brief](docs/build-brief.md) — project intent and evaluation constraints.
 - [Agent instructions](AGENTS.md) — provenance, isolation, and reversible-edit requirements.
 
-Credentials, private media, generated assets, and local artifacts stay outside Git.
+Credentials, full source media, generated 3D assets, and local artifacts stay outside Git. Only the selected, compressed demo screenshots are published here.
