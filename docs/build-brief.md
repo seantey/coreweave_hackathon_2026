@@ -23,7 +23,7 @@ The user explicitly proposed reusing the previous hackathon's Spark/Three.js app
 | fal SAM 3D Objects | Reconstruct selected objects, potentially supplying both splats and meshes | One actual request returned a Gaussian PLY and GLB, now rendered. Exports have different coordinate frames; empirical registration is implemented. Room alignment remains untested. |
 | Programmatic geometry/editing | Surface completion, object transforms, local geometry and collider changes | Reversible edit primitives are implemented. Scene-quality improvement remains unvalidated. No separate inpainting service is currently required. |
 | W&B Inference | GLM-5.3-Flash image observations and potentially agent decisions | One completed image-description test; reliability as a defect evaluator is unvalidated. Native video support is not established. |
-| Weave | Trace tool/model calls and record evaluations and revisions | Connectivity trace succeeded; bounded loop instrumentation is implemented. A real repair-loop trace remains to be demonstrated. |
+| Weave | Trace tool/model calls and record evaluations and revisions | Connectivity trace succeeded; bounded loop instrumentation is implemented. A real inspection trace with image inputs completed and stopped on the isolated chair. An accepted real-room repair remains to be demonstrated. |
 
 Tripo is deferred at the user's request; do not make it a dependency. TypeSafe is optional and should only be introduced if it demonstrably helps. ARIA, marimo, and separate cloud GPU provisioning are not selected dependencies.
 

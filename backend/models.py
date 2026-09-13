@@ -1,4 +1,5 @@
 """Portable scene contracts shared by the editor, automation, and evidence store."""
+
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 import math
@@ -34,7 +35,7 @@ class Bounds(StrictModel):
         return self
 
     def volume(self):
-        return math.prod(b-a for a,b in zip(self.minimum, self.maximum))
+        return math.prod(b - a for a, b in zip(self.minimum, self.maximum))
 
 
 class Camera(StrictModel):
@@ -44,8 +45,25 @@ class Camera(StrictModel):
 
     @model_validator(mode="after")
     def different(self):
-        if sum((a-b)**2 for a,b in zip(self.position,self.target)) < 1e-8:
+        if sum((a - b) ** 2 for a, b in zip(self.position, self.target)) < 1e-8:
             raise ValueError("Camera position must differ from target")
+        return self
+
+
+class ImageRegion(StrictModel):
+    """Normalized top-left image coordinates for a geometric inspection, not a mask."""
+
+    minimum: tuple[float, float]
+    maximum: tuple[float, float]
+
+    @model_validator(mode="after")
+    def valid_rectangle(self):
+        if any(
+            not 0 <= low < high <= 1 for low, high in zip(self.minimum, self.maximum)
+        ):
+            raise ValueError(
+                "Image region must have increasing normalized bounds within [0, 1]"
+            )
         return self
 
 
@@ -61,6 +79,7 @@ class Asset(StrictModel):
     color: str = "#b9b0a0"
     provenance: str = "Unverified"
     protected: bool = False
+    initially_visible: bool = True
 
     @model_validator(mode="after")
     def valid_matrix(self):
@@ -71,7 +90,7 @@ class Asset(StrictModel):
 
 class Edit(StrictModel):
     id: str
-    operation: Literal["hide_region", "transform_asset", "add_surface"]
+    operation: Literal["hide_region", "transform_asset", "place_asset", "add_surface"]
     asset_id: str
     reason: str = Field(min_length=5)
     evidence: list[str] = Field(min_length=1)
@@ -84,9 +103,14 @@ class Edit(StrictModel):
     def arguments_present(self):
         if self.operation == "hide_region" and not self.bounds:
             raise ValueError("hide_region requires bounds")
-        if self.operation in ("transform_asset", "add_surface") and not self.transform:
+        if (
+            self.operation in ("transform_asset", "place_asset", "add_surface")
+            and not self.transform
+        ):
             raise ValueError("This edit requires a transform")
-        if self.operation == "add_surface" and (not self.size or any(s <= 0 for s in self.size)):
+        if self.operation == "add_surface" and (
+            not self.size or any(s <= 0 for s in self.size)
+        ):
             raise ValueError("add_surface requires positive size")
         return self
 
@@ -114,7 +138,9 @@ class Scene(StrictModel):
     revisions: list[Revision]
     current_revision: str
     metric_status: str = "unverified"
-    source_kind: Literal["captured_room", "object_probe", "synthetic_fixture"] = "captured_room"
+    source_kind: Literal["captured_room", "object_probe", "synthetic_fixture"] = (
+        "captured_room"
+    )
 
 
 def validate_edit(scene: Scene, edit: Edit):
@@ -122,17 +148,32 @@ def validate_edit(scene: Scene, edit: Edit):
     assets = {a.id: a for a in scene.assets}
     if edit.operation != "add_surface" and edit.asset_id not in assets:
         raise ValueError("Unknown target asset")
-    if edit.operation != 'add_surface' and assets[edit.asset_id].protected:
-        raise ValueError('Target is protected')
+    if edit.operation != "add_surface" and assets[edit.asset_id].protected:
+        raise ValueError("Target is protected")
+    if edit.operation == "place_asset" and assets[edit.asset_id].initially_visible:
+        raise ValueError("place_asset requires an inactive library asset")
     if edit.operation == "hide_region":
         target = assets[edit.asset_id]
         if target.kind != "splat":
             raise ValueError("Region removal currently supports splats only")
         if edit.bounds.volume() > scene.bounds.volume() * 0.12:
-            raise ValueError("Removal exceeds 12% of scene bounding volume; narrow the region")
-        if any(a < s or b > e for a,b,s,e in zip(edit.bounds.minimum,edit.bounds.maximum,scene.bounds.minimum,scene.bounds.maximum)):
+            raise ValueError(
+                "Removal exceeds 12% of scene bounding volume; narrow the region"
+            )
+        if any(
+            a < s or b > e
+            for a, b, s, e in zip(
+                edit.bounds.minimum,
+                edit.bounds.maximum,
+                scene.bounds.minimum,
+                scene.bounds.maximum,
+            )
+        ):
             raise ValueError("Removal extends outside declared scene bounds")
     if edit.operation == "add_surface":
-        if math.prod(edit.size) * math.prod(edit.transform.scale) > scene.bounds.volume() * 0.12:
+        if (
+            math.prod(edit.size) * math.prod(edit.transform.scale)
+            > scene.bounds.volume() * 0.12
+        ):
             raise ValueError("Surface completion exceeds edit size limit")
     return edit

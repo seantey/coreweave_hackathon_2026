@@ -19,6 +19,8 @@ def identifier(prefix):
 
 
 def media_path(relative: str) -> Path:
+    if Path(relative).is_absolute():
+        raise ValueError("Media paths must be relative to the data directory")
     p = (DATA / relative).resolve()
     if not p.is_relative_to(DATA):
         raise ValueError("Path must remain inside the data directory")
@@ -48,20 +50,35 @@ def save_scene(scene: Scene):
 
 
 def list_scenes():
-    return [Scene.model_validate_json(p.read_text()) for p in sorted(DATA.glob("scenes/*/scene.json"))]
+    return [
+        Scene.model_validate_json(p.read_text())
+        for p in sorted(DATA.glob("scenes/*/scene.json"))
+    ]
 
 
 def propose(scene_id: str, edit: Edit, parent_id: str | None = None):
     with LOCK:
         scene = read_scene(scene_id)
         validate_edit(scene, edit)
-        parent = next((r for r in scene.revisions if r.id == (parent_id or scene.current_revision)), None)
+        parent = next(
+            (
+                r
+                for r in scene.revisions
+                if r.id == (parent_id or scene.current_revision)
+            ),
+            None,
+        )
         if parent is None or parent.status not in ("baseline", "accepted"):
             raise ValueError("Edits must branch from an accepted revision")
         if any(e.id == edit.id for r in scene.revisions for e in r.edits):
             raise ValueError("Edit id already exists")
-        revision = Revision(id=identifier("revision"), parent_id=parent.id, label=edit.reason,
-                            edits=[*parent.edits, edit], created_at=timestamp())
+        revision = Revision(
+            id=identifier("revision"),
+            parent_id=parent.id,
+            label=edit.reason,
+            edits=[*parent.edits, edit],
+            created_at=timestamp(),
+        )
         scene.revisions.append(revision)
         save_scene(scene)
         return revision
@@ -74,7 +91,9 @@ def decide(scene_id, revision_id, accept, evaluation):
         if revision.status != "candidate":
             raise ValueError("Only pending candidates may be decided")
         if accept and revision.parent_id != scene.current_revision:
-            raise ValueError("Scene changed during evaluation; candidate must be reevaluated")
+            raise ValueError(
+                "Scene changed during evaluation; candidate must be reevaluated"
+            )
         revision.status = "accepted" if accept else "rejected"
         revision.evaluation = evaluation
         if accept:
@@ -84,9 +103,14 @@ def decide(scene_id, revision_id, accept, evaluation):
 
 
 def event(scene_id, kind, payload):
-    entry = {"id":identifier("event"),"time":timestamp(),"kind":kind,"payload":payload}
+    entry = {
+        "id": identifier("event"),
+        "time": timestamp(),
+        "kind": kind,
+        "payload": payload,
+    }
     with LOCK:
         p = scene_path(scene_id).parent / "events.jsonl"
         with p.open("a") as f:
-            f.write(json.dumps(entry, allow_nan=False)+"\n")
+            f.write(json.dumps(entry, allow_nan=False) + "\n")
     return entry
