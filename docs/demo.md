@@ -72,6 +72,6 @@ The video now shows the actual clean-input scene. The original source video is a
 A later tool correction supplies both candidate and original-reference crops to future regional image edits. Earlier recorded crop jobs supplied only the candidate crop; their artifacts and outcomes are preserved rather than reinterpreted as having received a second input.
 
 
-## Immersive Marble integration view
+## Project isolation correction
 
-The user's requested immersive office is still blocked by Mint's upstream generation failure. A real, previously generated Marble bedroom now exercises the full-window viewer at `http://127.0.0.1:8000/?scene=stream-fixture&immersive=1`. Its persistent label says it is not the captured office. Drag to look while piloting the virtual probe, use WASD/QE to move, toggle the actual collision mesh, and reset the camera. Do not splice this fixture into the office before/after story as a successful restoration. The office evidence demo remains separately available at `/demo.html`.
+The unrelated prior-project scene and its viewer link have been removed. It was wrongly imported as an integration test and must not be restored or used as progress toward the office deliverable. The office evidence presentation remains at `/demo.html`; the requested office Marble reconstruction remains incomplete.

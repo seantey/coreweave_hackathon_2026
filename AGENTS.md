@@ -9,3 +9,5 @@
 - The local `codex-git-user` profile maps to the user-requested `rksean` account; no profile named `rksean` exists. Wrap Git/GitHub commands with `git-id-switcher run codex-git-user -- git ...` or `git-id-switcher run codex-git-user -- gh ...`. Do not add co-author or AI attribution footers.
 - Write self-contained code comments and implementation docs. Update operational instructions only after testing the actual commands. Disclose reused prior-project components in the eventual submission.
 - This file does not authorize subagent spawning or external publication. If delegation is separately authorized, give each agent a bounded task, shared contracts, and the relevant evidence; review and integrate its results.
+
+- Project isolation: use only this project’s supplied office media and derivatives for reconstruction and demonstrations. Do not import scenes, assets, camera calibrations, or demo content from other projects, including as integration fixtures. Shared libraries and conceptual references do not authorize content reuse.
