@@ -1,6 +1,6 @@
 # Clean Room Imputation
 
-**An agent-driven repair loop for captured 3D spaces.** Inspect a room, repair broken furniture and collision geometry, then check the result from multiple viewpoints.
+**An agent-driven repair loop for captured 3D spaces.** Clean Room Imputation turns video captures of real spaces into interactive 3D scenes. In this demo, we reconstruct the CoreWeave hackathon venue, where people and temporary clutter complicate the capture. An inspect–repair–recheck loop improves furniture and collision geometry, with potential applications in robotics simulation and virtual sets for filmmaking.
 
 Built for CoreWeave Hacks with **W&B Inference, W&B Weave, fal, Three.js, and Spark**.
 
