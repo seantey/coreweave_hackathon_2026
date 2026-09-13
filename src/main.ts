@@ -18,6 +18,8 @@ type Asset = {
   label: string;
   kind: "splat" | "mesh" | "box";
   path: string | null;
+  remote_url?: string | null;
+  paged?: boolean;
   collider_path: string | null;
   collider_matrix?: number[] | null;
   transform: Transform;
@@ -196,8 +198,11 @@ async function loadAsset(asset: Asset) {
   transform(root, asset.transform);
   world.add(root);
   const value: Loaded = { asset, root, originalIndices: new Map() };
-  if (asset.kind === "splat" && asset.path) {
-    value.splat = new SplatMesh({ url: media(asset.path) });
+  if (asset.kind === "splat" && (asset.path || asset.remote_url)) {
+    value.splat = new SplatMesh({
+      url: asset.remote_url ?? media(asset.path!),
+      ...(asset.paged ? { paged: true, lod: false } : {}),
+    });
     root.add(value.splat);
     await value.splat.initialized;
   }
@@ -359,13 +364,11 @@ function pick(x: number, y: number) {
   const hits = loaded
     .flatMap((e) =>
       e.root.visible && e.collider
-        ? ray
-            .intersectObject(e.collider, true)
-            .map((h) => ({
-              asset_id: e.asset.id,
-              point: h.point.toArray(),
-              distance: h.distance,
-            }))
+        ? ray.intersectObject(e.collider, true).map((h) => ({
+            asset_id: e.asset.id,
+            point: h.point.toArray(),
+            distance: h.distance,
+          }))
         : [],
     )
     .sort((a, b) => a.distance - b.distance);
@@ -402,7 +405,9 @@ function probeRegion(region: {
   };
 }
 async function settle() {
-  await new Promise<void>((resolve) => setTimeout(resolve, 500));
+  await new Promise<void>((resolve) =>
+    setTimeout(resolve, loaded.some((entry) => entry.asset.paged) ? 3000 : 500),
+  );
   renderer.render(world, camera);
 }
 function pixelVariation() {

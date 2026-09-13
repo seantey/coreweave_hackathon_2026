@@ -18,10 +18,10 @@ The user explicitly proposed reusing the previous hackathon's Spark/Three.js app
 
 | Component | Intended role | Evidence boundary |
 | --- | --- | --- |
-| Mint / World Labs Marble | Initial scene generation and downloadable appearance/collision assets | Current OAuth refresh failed with invalid_grant and requires reauthentication. No new office world generated yet. |
-| Spark + Three.js | Render splats and meshes, position inspection cameras, apply visual edits, place assets | Viewer renders the local chair splat and mesh; browser checks pass. Room-scale operation remains untested. |
+| Mint / World Labs Marble | Initial scene generation and downloadable appearance/collision assets | OAuth restored. Two office requests failed in Mint’s upstream fal preview provider with exhausted-balance errors. No completed office world yet. |
+| Spark + Three.js | Render splats and meshes, position inspection cameras, apply visual edits, place assets | Viewer renders the local chair and a remote RAD bedroom fixture. The latter tests streaming only, not office reconstruction. |
 | fal SAM 3D Objects | Reconstruct selected objects, potentially supplying both splats and meshes | One actual request returned a Gaussian PLY and GLB, now rendered. Exports have different coordinate frames; empirical registration is implemented. Room alignment remains untested. |
-| Programmatic geometry/editing | Surface completion, object transforms, local geometry and collider changes | Reversible edit primitives are implemented. Scene-quality improvement remains unvalidated. No separate inpainting service is currently required. |
+| Programmatic geometry/editing | Surface completion, object transforms, local geometry and collider changes | Reversible edit primitives are implemented. Scene-quality improvement remains unvalidated. A people-free 2D image candidate has also been generated for evaluation; it is not a restored 3D scene. |
 | W&B Inference | GLM-5.3-Flash image observations and potentially agent decisions | One completed image-description test; reliability as a defect evaluator is unvalidated. Native video support is not established. |
 | Weave | Trace tool/model calls and record evaluations and revisions | Connectivity trace succeeded; bounded loop instrumentation is implemented. A real inspection trace with image inputs completed and stopped on the isolated chair. An accepted real-room repair remains to be demonstrated. |
 

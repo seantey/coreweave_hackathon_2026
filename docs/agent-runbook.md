@@ -120,8 +120,21 @@ The browser check currently expects the local `chair-probe` scene and produces i
 
 ## Evidence checkpoint — September 13, 2026
 
-- Eighteen local tests pass, including rejection/retry behavior with **mocked** model responses. This does not establish vision-model reliability.
+- Twenty-two local tests pass, including rejection/retry behavior with **mocked** model responses. This does not establish vision-model reliability.
 - An actual rendered mechanics test cut the chair splat and reduced collider triangles from 269,740 to 227,452. Rollback restored 269,740 triangles and the original screenshot exactly. It also verified reversible activation of a library asset. The deliberate test cut was not an agent-discovered defect or a useful restoration. Artifacts are local under `.artifacts/revision-check/`.
 - [A real one-pass inspection trace](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a099e4-2700-7a98-b118-f6011c7b8759) completed with W&B image inference and image-bearing Weave inputs. It stopped without an edit because the input was an isolated chair rather than the office. This ran prompt v3; v4 adds library placement and rejected-edit feedback, which have local mechanical tests but no live room evaluation yet.
 - Earlier live attempts exposed an in-operation flush hang and an exhausted output allowance. The flush moved outside the traced operation; the output allowance increased to 4,096, and the observation request became more concise. Neither failed attempt changed the accepted scene.
-- Room restoration, segmentation accuracy, object replacement quality, and reliable detection of remaining occupants remain unverified. Mint/Marble requires reauthentication before the intended office-generation path can run.
+- Room restoration, segmentation accuracy, object replacement quality, and reliable detection of remaining occupants remain unverified. Mint OAuth now works, but two office requests failed in its upstream fal preview provider with an exhausted-balance error. The supplied fal account works independently. A Hunyuan World fallback job is processing; its output is not yet validated.
+
+
+## Checkpointed provider jobs and remote worlds
+
+`segment IMAGE --prompt person` submits a fal SAM 3 image-segmentation request, validates returned mask dimensions, and saves model scores, masks, and the request ID. The actual office photo returned 19 candidate masks, including potentially overlapping detections; that is not a verified count of people.
+
+`review-segmentation data/segmentation/JOB/segmentation.json` reviews source crops and mask overlays through W&B image inference and Weave. Each batch is checkpointed. Only explicit person-only decisions enter the candidate mask union; the source remains unchanged. The live review exposed JSON-container variation and output exhaustion. Container normalization preserves strict decision validation; the review allowance is now 8,192 tokens. Full review completion and accuracy remain unverified.
+
+`resume-fal data/PATH/job.json --timeout 600` resumes a queued request without another submission. Timeouts preserve its handle. Never submit a duplicate merely because a polling process ended.
+
+`import-mint-world MANIFEST --id office --title 'Office reconstruction' --reference IMAGE` imports the actual remote RAD contract and downloads its paired collider. Use `--fixture` for prior content used only to test integration. Initial cameras look along coordinate axes at the reconstruction origin; they are not recovered source-camera calibration. Remote RAD remains dependent on its provider URL in exported packages.
+
+The optional `generate-marble SOURCE --prompt TEXT` and `resume-marble OPERATION` commands use a separate `WORLDLABS_API_KEY`. Their protocol has mocked tests only. Mint authentication and credits cannot substitute for this key. Image/video inline inputs are limited to 10 MB by this adapter; preserve originals when preparing derivatives.

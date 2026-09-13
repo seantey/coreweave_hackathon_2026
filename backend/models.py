@@ -1,6 +1,7 @@
 """Portable scene contracts shared by the editor, automation, and evidence store."""
 
 from typing import Literal
+from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 import math
 
@@ -72,6 +73,8 @@ class Asset(StrictModel):
     label: str
     kind: Literal["splat", "mesh", "box"]
     path: str | None = None
+    remote_url: str | None = None
+    paged: bool = False
     collider_path: str | None = None
     collider_matrix: tuple[float, ...] | None = None
     transform: Transform = Field(default_factory=Transform)
@@ -83,6 +86,19 @@ class Asset(StrictModel):
 
     @model_validator(mode="after")
     def valid_matrix(self):
+        if self.remote_url:
+            url = urlparse(self.remote_url)
+            if (
+                url.scheme != "https"
+                or not url.hostname
+                or url.username
+                or url.password
+            ):
+                raise ValueError(
+                    "Remote assets require an HTTPS URL without embedded credentials"
+                )
+            if self.path:
+                raise ValueError("Choose either a local asset path or a remote URL")
         if self.collider_matrix is not None and len(self.collider_matrix) != 16:
             raise ValueError("Collider matrix must have 16 column-major values")
         return self

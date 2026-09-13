@@ -37,9 +37,9 @@ def initialize_tracing():
 
 
 @weave.op()
-def vision_review(prompt: str, images: list[Image.Image]):
+def vision_review(prompt: str, images: list[Image.Image], max_tokens: int = 4096):
     """Attach the exact reviewed image pixels to the trace, alongside the final answer."""
-    return providers.vision(prompt, images)
+    return providers.vision(prompt, images, max_tokens=max_tokens)
 
 
 def review_paths(prompt, paths):

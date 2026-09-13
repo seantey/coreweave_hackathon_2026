@@ -129,6 +129,34 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("review-segmentation")
+    p.add_argument("segmentation")
+    p = commands.add_parser("generate-marble")
+    p.add_argument("source")
+    p.add_argument("--prompt", required=True)
+    p.add_argument("--title", default="Clean Room Imputation")
+    p.add_argument("--model", default="marble-1.1")
+    p = commands.add_parser("resume-marble")
+    p.add_argument("operation")
+    p.add_argument("--timeout", type=float, default=600)
+    p = commands.add_parser("segment")
+    p.add_argument("image")
+    p.add_argument("--prompt", required=True)
+    p.add_argument("--maximum-masks", type=int, default=32)
+    p = commands.add_parser("resume-fal")
+    p.add_argument("job")
+    p.add_argument("--timeout", type=float, default=180)
+    p = commands.add_parser("import-mint-world")
+    p.add_argument("manifest")
+    p.add_argument("--id", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--reference", action="append", default=[])
+    p.add_argument("--video")
+    p.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Label imported prior content as a test fixture, not the office",
+    )
     p = commands.add_parser("import-scene")
     p.add_argument("--id", required=True)
     p.add_argument("--title", required=True)
@@ -191,7 +219,67 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "import-scene":
+    if args.command == "review-segmentation":
+        from . import agent
+        from .mask_review import review_segmentation
+
+        agent.initialize_tracing()
+        try:
+            print(json.dumps(review_segmentation(args.segmentation), indent=2))
+        finally:
+            if agent.CLIENT:
+                agent.CLIENT.flush()
+    elif args.command == "generate-marble":
+        from .worldlabs import generate
+
+        print(generate(Path(args.source), args.prompt, args.title, args.model))
+    elif args.command == "resume-marble":
+        from .worldlabs import resume
+
+        result = resume(Path(args.operation), args.timeout)
+        print(
+            json.dumps(
+                {
+                    "world_id": result.get("world_id"),
+                    "world_marble_url": result.get("world_marble_url"),
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "segment":
+        from .segmentation import segment
+
+        print(
+            json.dumps(
+                segment(Path(args.image), args.prompt, args.maximum_masks), indent=2
+            )
+        )
+    elif args.command == "resume-fal":
+        from .fal_jobs import resume
+
+        print(json.dumps(resume(Path(args.job), args.timeout), indent=2))
+    elif args.command == "import-mint-world":
+        from .world_import import import_mint_world
+
+        scene = import_mint_world(
+            Path(args.manifest),
+            args.id,
+            args.title,
+            args.reference,
+            args.video,
+            args.fixture,
+        )
+        print(
+            json.dumps(
+                {
+                    "scene_id": scene.id,
+                    "bounds": scene.bounds.model_dump(),
+                    "remote_stream": True,
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "import-scene":
         import_scene(args)
     elif args.command == "capture":
         from .capture import capture
