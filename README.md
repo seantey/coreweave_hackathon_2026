@@ -1,19 +1,110 @@
 # Clean Room Imputation
 
-Reconstruct an occupied office as if nobody were there, preserving its furniture, layout, and visual consistency. The intended system uses agents to inspect a reconstruction, make targeted edits, and check their effects.
+**An agent-driven repair loop for captured 3D spaces.** Inspect a room, repair broken furniture and collision geometry, then check the result from multiple viewpoints.
 
-**Latest cleanup:** the floating central remnant and obsolete table geometry have been removed from both appearance and collision meshes. The accepted office revision is `revision-8347296775c6`; the repaired table, chairs and laptop remain. Three camera views and the collision display were reviewed. The floor texture and room background still have reconstruction artifacts.
+Built for CoreWeave Hacks with **W&B Inference, W&B Weave, fal, Three.js, and Spark**.
 
-**Latest work — September 13, 2026:** the assistant directly repaired the actual office in `office-rebuild`: regenerated its folding table from the supplied photo, corrected placement and floor contact, preserved the laptop, and replaced two torn foreground chairs with office-derived chair splats and paired colliders. Rejected candidates and before/after views remain saved. Open `/?workspace=1&scene=office-rebuild`; use View original / View accepted and Table side. See [the direct repair record](docs/direct-office-repair.md) for the real sequence and reproduction notes. The Hunyuan room background remains severely distorted; this is a local furniture improvement, not a completed Marble office. The deployed GLM loop did not independently perform this new sequence.
+## The demo
 
-**Earlier pipeline — September 13, 2026:** an end-to-end prototype run completed source correction, world generation, chair separation and W&B-traced 3D inspection. The corrected office renders without the prominent occupants, with seven mask-assigned chair parts: four substantial candidates and three small fragments. Partitioning retained all 149,999 triangles and the rendered screenshot exactly. The 3D agent used probes, isolation and another camera to resolve a suspected person remnant as furniture, then stopped without editing. Warped surfaces, incomplete chairs and other reconstruction defects remain; no accepted autonomous 3D repair or physical-geometry accuracy is claimed. The office uses a disclosed Hunyuan fallback because Marble generation failed through Mint.
+Explore an office reconstruction and switch between its original and repaired geometry without changing your viewpoint. The demonstrated repairs rebuild a folding table and two chairs, remove floating reconstruction debris, and update the corresponding collision geometry.
 
-**Current target gap:** the requested immersive Marble Gaussian-splat office has not been generated. The Hunyuan result does not satisfy that visual target. Mint OAuth works, but office generation failed in its upstream preview provider with HTTP 403 / exhausted balance. An unrelated prior-project scene was mistakenly imported for testing and presented as the viewer link; it has been removed along with its dependent artifacts and test. Do not reuse other projects’ scenes. Generic virtual-probe controls remain, but their synthetic geometry tests do not validate this office’s collision quality.
+- **Move around:** drag to look, WASD to move, Q/E to change elevation, or use the on-screen buttons.
+- **Compare:** toggle Before repair / After repair in the live 3D scene.
+- **Inspect geometry:** switch between Collision mesh and Textured view.
+- **Understand the loop:** expand the short explanation below the viewer.
 
-Read [the build brief](docs/build-brief.md) for user intent, the proposed technical approach, evaluation questions, and known limits. Coding agents should also read [AGENTS.md](AGENTS.md).
+With the local demo data installed, open **http://127.0.0.1:8000/**.
 
-**Demo:** open `/` for the interactive 3D office. Move with WASD and drag to look; switch before/after repairs at the same viewpoint. The optional quick comparison shows recorded furniture repairs. The people-removal still images are no longer featured. “How the repair loop works” explains the process. See [the demo guide](docs/demo.md). Private media remains excluded from Git.
+## The repair loop
 
-This directory is the self-contained application and intended GitHub repository. Keep runtime code, scripts, dependencies, tests, and application documentation here. The parent workspace contains brainstorming, event research, local credentials, and private media; those are not runtime dependencies of an independent checkout. Accept configurable input and credential paths rather than hard-coding parent paths.
+```mermaid
+flowchart LR
+    Inspect[Inspect scene views] --> Diagnose[Locate the defect]
+    Diagnose --> Repair[Propose a reversible repair]
+    Repair --> Check[Compare matching views]
+    Check -->|Improved| Keep[Keep the revision]
+    Check -->|Failed or uncertain| Retry[Undo or inspect further]
+    Retry --> Inspect
+```
 
-See the [agent runbook](docs/agent-runbook.md) for setup, implemented commands, evidence, and replay. Never commit populated credentials, raw captures, or temporary service response files.
+A model verdict is evidence, not ground truth. The workflow retains source references, camera poses, rejected candidates, and accepted revisions so decisions can be reviewed and changes reversed.
+
+## W&B Inference and Weave
+
+**W&B Inference** runs GLM-5.3-Flash for visual observations, tool selection, and before/after evaluation in the implemented agent workflows.
+
+**W&B Weave** records model and tool calls, reviewed images, outputs, usage, and evaluation decisions. These traces help explain what the agent inspected, why it proposed an edit, and whether that edit passed its checks. Weave provides observability; it does not certify reconstruction accuracy.
+
+Recorded examples include the [restoration pipeline](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09bd0-d315-7801-9562-d8473b8055f5) and [furniture repair review](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09c29-918d-7315-b341-8345512beb11). These links require access to the W&B project. The latest foreground-debris cleanup has local evidence and revision records; it was not added to Weave.
+
+## What is implemented
+
+| Component | Role |
+| --- | --- |
+| Three.js + Spark | Interactive mesh and Gaussian-splat rendering, scene revisions, and collider inspection |
+| FastAPI + Python | Scene storage, capture tools, model adapters, and checkpointed workflows |
+| W&B Inference + Weave | Model execution, visual review, and traceable agent decisions |
+| fal | Segmentation, object reconstruction, and Hunyuan room generation |
+| Geometry tools | Alignment, local mesh cleanup, paired splat/collider transforms, and reversible edits |
+
+The repository includes a bounded model-driven inspection/edit/evaluation loop. The demonstrated furniture reconstruction and latest cleanup were **assistant-led tool work**, not an unattended run of that deployed loop. See the [repair record](docs/direct-office-repair.md) for the actual accepted and rejected attempts.
+
+The current office uses a **Hunyuan room with reconstructed furniture splats**. Marble adapters are included, but the office demo is not a completed Marble world. Background distortion and inferred floor geometry remain. Navigation is free flight; collision visualization does not establish validated physics or a simulation-ready digital twin.
+
+## Run locally
+
+Requires **Node.js 22.12+**, **Python 3.11+**, and **uv**. Install Google Chrome if you will use headless scene capture or the browser checks.
+
+```sh
+npm ci
+uv sync
+cp .env.example .env
+```
+
+Configure the private `.env`:
+
+| Variable | Purpose |
+| --- | --- |
+| `WANDB_API_KEY` | W&B Inference and Weave authentication |
+| `WANDB_ENTITY`, `WANDB_PROJECT` | Destination for Weave traces |
+| `CLEANROOM_WEAVE=true` | Enable Weave tracing |
+| `FAL_KEY` | Paid segmentation, image, and reconstruction tools |
+| `CLEANROOM_DATA_DIR` | Local scene assets and recorded evidence; defaults to `./data` |
+| `CLEANROOM_VIEWER_URL` | URL used by headless capture; use `http://127.0.0.1:8000` for the single-server setup below |
+
+Viewing saved results does not start model jobs. Provider keys are needed when running the corresponding model tools.
+
+```sh
+npm run build
+uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
+```
+
+**Office media, generated assets, and recorded demo data are not included in this public repository.** A fresh clone needs a local data package to replay the office demo. To work with your own assets, follow the [import and agent workflow instructions](docs/agent-runbook.md), then open the workspace at `http://127.0.0.1:8000/?workspace=1`.
+
+For frontend development, run `npm run dev` alongside the backend. The development viewer uses port 5173.
+
+## Verify
+
+```sh
+uv run pytest -q
+npm run build
+```
+
+With the local office data and server available:
+
+```sh
+node scripts/demo-check.mjs
+node scripts/direct-office-check.mjs
+```
+
+The browser checks exercise movement, revision comparison, and presentation controls. They do not measure physical reconstruction accuracy.
+
+## Documentation
+
+- [Demo guide](docs/demo.md) — controls, scope, and presentation operation.
+- [Repair record](docs/direct-office-repair.md) — actual experiments, evidence, and limitations.
+- [Agent runbook](docs/agent-runbook.md) — imports, tools, tracing, and replay; historical checkpoints are labeled.
+- [Build brief](docs/build-brief.md) — project intent and evaluation constraints.
+- [Agent instructions](AGENTS.md) — provenance, isolation, and reversible-edit requirements.
+
+Credentials, private media, generated assets, and local artifacts stay outside Git.
