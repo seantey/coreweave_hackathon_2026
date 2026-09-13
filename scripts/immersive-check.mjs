@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {chromium} from 'playwright';
+const browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=metal']});
+try {
+ const page=await browser.newPage({viewport:{width:1440,height:900}});
+ const errors=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ await page.goto('http://127.0.0.1:5173/?scene=stream-fixture&immersive=1');
+ await page.waitForFunction(()=>window.cleanroom?.ready,{},{timeout:90000});
+ await page.waitForTimeout(3500);
+ assert.match(await page.locator('#scene-warning').innerText(),/Not the captured office/);
+ const before=await page.evaluate(()=>window.cleanroom.metadata());
+ await page.click('#probe-toggle');
+ await page.keyboard.down('KeyW');
+ await page.waitForTimeout(500);
+ await page.keyboard.up('KeyW');
+ const after=await page.evaluate(()=>window.cleanroom.metadata());
+ assert.notDeepEqual(after.position,before.position,'Keyboard moves camera inside the actual Marble scene');
+ assert.equal(after.navigation_mode,'virtual_probe');
+ const contact=await page.evaluate(()=>{
+   window.cleanroom.setCamera('Entry');
+   return window.cleanroom.probePath([0,-20,0]);
+ });
+ assert.equal(contact.blocked,true,'Actual Marble collider blocks a long path');
+ assert.ok(contact.contact);
+ assert.equal(contact.scene_id,'stream-fixture');
+ assert.equal(contact.metric_status,'unverified');
+ await page.click('#probe-reset');
+ await page.click('#probe-collision');
+ assert.equal(await page.locator('#colliders').isChecked(),true);
+ await page.waitForTimeout(1500);
+ await page.screenshot({path:'.artifacts/marble-immersive-collision.png'});
+ await page.click('#probe-collision');
+ await page.keyboard.press('Escape');
+ assert.equal((await page.evaluate(()=>window.cleanroom.metadata())).navigation_mode,'orbit');
+ await page.screenshot({path:'.artifacts/marble-immersive-ready.png'});
+ assert.deepEqual(errors,[]);
+ await fs.writeFile('.artifacts/immersive-check.json',JSON.stringify({before,after,contact,errors},null,2));
+ console.log('Immersive Marble: rendered, keyboard translated camera, collider blocked path, mesh overlay toggled, Esc restored orbit; no page errors');
+} finally {await browser.close();}

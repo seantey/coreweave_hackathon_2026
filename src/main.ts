@@ -9,6 +9,7 @@ import {
   SplatEditSdfType,
 } from "@sparkjsdev/spark";
 import "./style.css";
+import { ProbeNavigation } from "./probe-navigation";
 
 type Vector = [number, number, number];
 type Transform = { position: Vector; rotation: Vector; scale: Vector };
@@ -127,6 +128,78 @@ const spark = new SparkRenderer({ renderer });
 world.add(spark);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 2000);
 const controls = new OrbitControls(camera, renderer.domElement);
+const navigation = new ProbeNavigation();
+let navigationDirty = true;
+let probeMode = false;
+let previousFrame = performance.now();
+const pressedKeys = new Set<string>();
+const probeHistory: unknown[] = [];
+canvasHost.insertAdjacentHTML("beforeend", `<div id="explore-controls"><button id="immersive-toggle">Expand scene</button><button id="probe-toggle">Pilot virtual probe</button><button id="probe-reset">Reset view</button><button id="probe-collision">Show collision mesh</button><span id="probe-status">Orbit inspection</span></div>`);
+function ensureNavigation() {
+  if (!navigationDirty) return;
+  navigation.rebuild([
+    ...loaded.filter(entry => entry.root.visible && entry.collider).map(entry => entry.collider!),
+    ...repairs.children,
+  ]);
+  navigationDirty = false;
+}
+function moveProbe(displacement: Vector) {
+  ensureNavigation();
+  const start = camera.position.clone();
+  const result = navigation.move(start, new THREE.Vector3().fromArray(displacement));
+  const delta = result.position.clone().sub(start);
+  camera.position.copy(result.position);
+  controls.target.add(delta);
+  const record = { ...result, position: result.position.toArray(), start: start.toArray(), displacement, scene_id: data.id, revision_id: activeRevision.id, radius: navigation.radius, metric_status: data.metric_status };
+  $("probe-status").textContent = result.blocked ? result.reason : "Moving · collision checks active";
+  return record;
+}
+function setProbeMode(enabled: boolean) {
+  probeMode = enabled;
+  pressedKeys.clear();
+  controls.enabled = !enabled;
+  $("probe-toggle").textContent = enabled ? "Return to orbit" : "Pilot virtual probe";
+  $("probe-status").textContent = enabled ? "Drag to look · WASD move · Q/E down/up · radius 0.12 scene units" : "Orbit inspection";
+  renderer.domElement.style.cursor = enabled ? "crosshair" : "grab";
+  document.querySelector(".viewport-caption span:last-child")!.textContent = enabled ? "Virtual probe · generated mesh only · Esc to orbit" : "Drag to orbit · Scroll to explore";
+}
+$("probe-toggle").onclick = () => setProbeMode(!probeMode);
+$("probe-collision").onclick = () => {
+  const checkbox = $<HTMLInputElement>("colliders");
+  checkbox.checked = !checkbox.checked;
+  updateLayerVisibility();
+  $("probe-collision").textContent = checkbox.checked ? "Hide collision mesh" : "Show collision mesh";
+};
+$("probe-reset").onclick = () => { setCamera(Object.keys(data.cameras)[0]); };
+function setImmersive(enabled: boolean) {
+  document.body.classList.toggle("immersive-mode", enabled);
+  $("immersive-toggle").textContent = enabled ? "Show workspace" : "Expand scene";
+}
+$("immersive-toggle").onclick = () => setImmersive(!document.body.classList.contains("immersive-mode"));
+if (query.has("immersive")) setImmersive(true);
+window.addEventListener("keydown", event => {
+  if (!probeMode || (event.target as HTMLElement)?.closest("input, textarea, select")) return;
+  if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"].includes(event.code)) { pressedKeys.add(event.code); event.preventDefault(); }
+  if (event.code === "Escape") setProbeMode(false);
+});
+window.addEventListener("keyup", event => pressedKeys.delete(event.code));
+window.addEventListener("blur", () => pressedKeys.clear());
+let looking = false;
+renderer.domElement.addEventListener("pointerdown", event => {
+  if (!probeMode) return;
+  looking = true;
+  renderer.domElement.setPointerCapture(event.pointerId);
+});
+renderer.domElement.addEventListener("pointerup", () => { looking = false; });
+renderer.domElement.addEventListener("lostpointercapture", () => { looking = false; });
+renderer.domElement.addEventListener("pointermove", event => {
+  if (!probeMode || !looking) return;
+  const angles = new THREE.Euler().setFromQuaternion(camera.quaternion, "YXZ");
+  angles.y -= event.movementX * 0.003;
+  angles.x = THREE.MathUtils.clamp(angles.x - event.movementY * 0.003, -1.5, 1.5);
+  camera.quaternion.setFromEuler(angles);
+  controls.target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()));
+});
 controls.enableDamping = true;
 const light = new THREE.HemisphereLight(0xffffff, 0x41494c, 2);
 world.add(light);
@@ -155,7 +228,18 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvasHost);
 renderer.setAnimationLoop(() => {
-  controls.update();
+  const now = performance.now();
+  const elapsed = Math.min((now - previousFrame) / 1000, 0.05);
+  previousFrame = now;
+  if (probeMode && ready && pressedKeys.size) {
+    const direction = camera.getWorldDirection(new THREE.Vector3());
+    const right = new THREE.Vector3().crossVectors(direction, camera.up).normalize();
+    const displacement = direction.multiplyScalar(Number(pressedKeys.has("KeyW")) - Number(pressedKeys.has("KeyS")))
+      .addScaledVector(right, Number(pressedKeys.has("KeyD")) - Number(pressedKeys.has("KeyA")));
+    displacement.y += Number(pressedKeys.has("KeyE")) - Number(pressedKeys.has("KeyQ"));
+    if (displacement.lengthSq()) moveProbe(displacement.normalize().multiplyScalar(elapsed * 1.2).toArray() as Vector);
+  }
+  if (!probeMode) controls.update();
   renderer.render(world, camera);
 });
 function transform(object: THREE.Object3D, t: Transform) {
@@ -171,6 +255,7 @@ function setCamera(name: string) {
   controls.target.fromArray(c.target);
   camera.fov = c.fov;
   camera.updateProjectionMatrix();
+  camera.lookAt(controls.target);
   controls.update();
   activeCamera = name;
   $("camera-label").textContent = name;
@@ -286,6 +371,7 @@ async function loadAsset(asset: Asset) {
 }
 
 function applyRevision(id: string) {
+  navigationDirty = true;
   const revision = data.revisions.find((r) => r.id === id);
   if (!revision) throw new Error("Unknown revision");
   activeRevision = revision;
@@ -391,6 +477,7 @@ function metadata() {
     camera_matrix: camera.matrixWorld.toArray(),
     projection_matrix: camera.projectionMatrix.toArray(),
     metric_status: data.metric_status,
+    navigation_mode: probeMode ? "virtual_probe" : "orbit",
     objects: loaded
       .filter((e) => e.root.visible)
       .map((e) => {
@@ -495,6 +582,7 @@ async function isolateAsset(id: string | null) {
   $("notice").textContent = id === null
     ? "Full scene restored. Inspection did not change the accepted revision."
     : "Isolated object inspection. Use Show room to return to the full scene.";
+  navigationDirty = true;
   await settle();
   return metadata();
 }
@@ -562,6 +650,14 @@ Object.assign(window, {
     applyRevision,
     setCamera,
     pixelVariation,
+    setProbeMode,
+    probePath: (displacement: Vector) => {
+      if (displacement.length !== 3 || displacement.some(value => !Number.isFinite(value))) throw new Error("Expected three finite displacement values");
+      const record = moveProbe(displacement);
+      probeHistory.push(record);
+      return record;
+    },
+    probeHistory: () => [...probeHistory],
     diagnostics: () =>
       loaded.map((e) => ({
         id: e.asset.id,
@@ -630,6 +726,9 @@ function displayRevisions() {
     .join("");
 }
 async function loadScene(id: string) {
+  setProbeMode(false);
+  navigationDirty = true;
+  probeHistory.length = 0;
   ready = false;
   rendering = true;
   previousInspectionPose = null;
@@ -786,7 +885,7 @@ $("colliders").onchange = updateLayerVisibility;
 $("grid").onchange = () => (grid.visible = $<HTMLInputElement>("grid").checked);
 $("export").onclick = () => {
   const blob = new Blob(
-    [JSON.stringify({ ...data, inspection: metadata() }, null, 2)],
+    [JSON.stringify({ ...data, inspection: metadata(), probe_paths: probeHistory }, null, 2)],
     { type: "application/json" },
   );
   const url = URL.createObjectURL(blob);

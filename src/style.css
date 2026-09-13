@@ -645,3 +645,13 @@ textarea {
 }
 .event > p { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 header a.quiet { text-decoration: none; }
+
+#explore-controls { position: absolute; left: 18px; bottom: 45px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; right: 18px; }
+#explore-controls button { background: #142019e8; border: 1px solid #69805c; border-radius: 7px; padding: 10px 13px; color: #e1edda; font-size: 11px; }
+#probe-status { background: #142019d9; padding: 9px 12px; border-radius: 6px; font-size: 11px; color: #d4e3ce; }
+.immersive-mode header, .immersive-mode aside, .immersive-mode .stage-heading, .immersive-mode .toolbar, .immersive-mode .revision-bar, .immersive-mode #notice { display: none; }
+.immersive-mode main { display: block; min-height: 100vh; }
+.immersive-mode .stage { padding: 0; }
+.immersive-mode #viewport { height: 100vh; border: 0; border-radius: 0; }
+.immersive-mode #scene-warning { width: fit-content; background: #142019df; padding: 12px 16px; border-radius: 8px; font-size: 12px; }
+.capture-mode #explore-controls { display: none; }
