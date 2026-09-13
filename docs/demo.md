@@ -8,6 +8,8 @@ With the backend on port 8000 and Vite on port 5173, open **http://127.0.0.1:517
 
 The five chapters show the occupied/corrected panorama, the missed distant person, its targeted correction, the subsequent preservation review, and an earlier rejected 3D edit. Use the comparison slider, chapter buttons, or arrow keys. “Play recorded sequence” advances saved evidence; it does not simulate live tool calls or spend credits. Trace links require access to the private W&B project.
 
+For a single local server, run `npm run build` before starting the backend. FastAPI serves the built workspace and `/demo.html` directly at port 8000. Set `CLEANROOM_VIEWER_URL=http://127.0.0.1:8000` when running capture/agent commands without Vite. Restart the backend if it started before the first build existed.
+
 The footer reads current saved reconstruction status. Until `office-clean` exists, its room link explicitly opens the **occupied** `office-textured` reconstruction. Once the clean-input scene exists, the link switches to that scene. A generated room still needs visual and geometric inspection.
 
 ## Three-minute walkthrough

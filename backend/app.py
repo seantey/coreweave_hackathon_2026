@@ -220,3 +220,12 @@ class CameraRequest(BaseModel):
 def register_camera(scene_id: str, request: CameraRequest):
     name = save_camera(scene_id, request.camera, request.reason)
     return {"name": name, "camera": request.camera.model_dump()}
+
+
+# A production build can run from this same local server without a Vite process.
+# API and media routes are registered first so the static mount cannot shadow them.
+from fastapi.staticfiles import StaticFiles
+
+DIST = Path(__file__).resolve().parents[1] / 'dist'
+if DIST.is_dir():
+    app.mount('/', StaticFiles(directory=DIST, html=True), name='viewer')

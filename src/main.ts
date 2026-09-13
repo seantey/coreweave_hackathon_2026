@@ -520,7 +520,7 @@ let previousInspectionPose: Camera | null = null;
 let previousInspectionCamera = "";
 async function inspectObject(id: string) {
   if (isolatedAsset === id) {
-    await isolateAsset(null);
+    const transition = isolateAsset(null);
     if (previousInspectionPose) {
       camera.position.fromArray(previousInspectionPose.position);
       controls.target.fromArray(previousInspectionPose.target);
@@ -531,13 +531,15 @@ async function inspectObject(id: string) {
       $("camera-label").textContent = activeCamera;
     }
     previousInspectionPose = null;
+    await transition;
   } else {
     if (!previousInspectionPose) {
       previousInspectionCamera = activeCamera;
       previousInspectionPose = {position: camera.position.toArray() as Vector, target: controls.target.toArray() as Vector, fov: camera.fov};
     }
-    await isolateAsset(id);
+    const transition = isolateAsset(id);
     focusAsset(id);
+    await transition;
   }
   await settle();
 }
