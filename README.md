@@ -10,7 +10,7 @@ Reconstruct an occupied office as if nobody were there, preserving its furniture
 
 Read [the build brief](docs/build-brief.md) for user intent, the proposed technical approach, evaluation questions, and known limits. Coding agents should also read [AGENTS.md](AGENTS.md).
 
-**Demo:** open `/` or `/demo.html` for a minimal before/after presentation. Switch between people removal and the latest furniture repair; expand “How it works” for the loop diagram. “Explore in 3D” opens the immersive office, while “Workspace” opens the detailed tools. See [the demo guide](docs/demo.md). Private media remains excluded from Git.
+**Demo:** open `/` for the interactive 3D office. Move with WASD and drag to look; switch before/after repairs at the same viewpoint. The optional quick comparison shows recorded furniture repairs. The people-removal still images are no longer featured. “How the repair loop works” explains the process. See [the demo guide](docs/demo.md). Private media remains excluded from Git.
 
 This directory is the self-contained application and intended GitHub repository. Keep runtime code, scripts, dependencies, tests, and application documentation here. The parent workspace contains brainstorming, event research, local credentials, and private media; those are not runtime dependencies of an independent checkout. Accept configurable input and credential paths rather than hard-coding parent paths.
 

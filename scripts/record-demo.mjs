@@ -11,23 +11,29 @@ page.on('pageerror', error => errors.push(error.message));
 const pause = milliseconds => page.waitForTimeout(milliseconds);
 try {
   await page.goto('http://127.0.0.1:5173/demo.html');
-  await page.waitForSelector('[data-comparison]');
-  const count = await page.locator('[data-comparison]').count();
-  for (let i = 0; i < count; i++) {
-    await page.locator(`[data-comparison="${i}"]`).click();
-    await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
-    await page.getByLabel('Before and after comparison').fill('100');
-    await pause(3500);
-    for (let value = 100; value >= 0; value -= 4) {
-      await page.getByLabel('Before and after comparison').fill(String(value));
-      await pause(45);
-    }
-    await pause(4500);
+  await page.waitForSelector('#office-viewer');
+  const frame = await (await page.locator('#office-viewer').elementHandle()).contentFrame();
+  await frame.waitForFunction(() => window.cleanroom?.ready, {}, {timeout:90000});
+  await frame.locator('#presentation-before').click();
+  await pause(2500);
+  await frame.locator('#presentation-after').click();
+  await pause(2500);
+  await frame.locator('#viewport canvas').click({position:{x:500,y:180}});
+  await page.keyboard.down('d'); await pause(900); await page.keyboard.up('d');
+  await pause(1500);
+  await frame.locator('#presentation-before').click(); await pause(2000);
+  await frame.locator('#presentation-after').click(); await pause(2000);
+  await page.locator('#compare-tab').click();
+  await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
+  for (let value = 100; value >= 0; value -= 4) {
+    await page.getByLabel('Before and after comparison').fill(String(value));
+    await pause(45);
   }
+  await pause(2000);
   await page.locator('summary').click();
   await pause(6000);
   await page.locator('summary').click();
-  await page.getByLabel('Before and after comparison').fill('0');
+  await page.locator('#explore-tab').click();
   await pause(4000);
 } finally {
   const video = page.video();
@@ -36,7 +42,7 @@ try {
   const output = '.artifacts/clean-room-imputation-demo.mp4';
   const result = spawnSync('ffmpeg',['-y','-i',path,'-c:v','libx264','-preset','fast','-crf','22','-pix_fmt','yuv420p','-movflags','+faststart',output],{encoding:'utf8'});
   if (result.status !== 0) throw new Error(result.stderr);
-  await fs.writeFile('.artifacts/demo-video/recording.json',JSON.stringify({output,errors,narration:'silent screen recording',scope:'Recorded comparison replay and loop explanation; no model calls simulated'},null,2));
+  await fs.writeFile('.artifacts/demo-video/recording.json',JSON.stringify({output,errors,narration:'silent screen recording',scope:'Actual 3D exploration, revision comparison and loop explanation; no model calls simulated'},null,2));
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(output);
 }

@@ -9,6 +9,7 @@ import {
   SplatEditSdfType,
 } from "@sparkjsdev/spark";
 import "./style.css";
+import "./exploration.css";
 import { ProbeNavigation } from "./probe-navigation";
 
 type Vector = [number, number, number];
@@ -77,6 +78,8 @@ type Loaded = {
 };
 const query = new URLSearchParams(location.search);
 const captureMode = query.has("capture");
+const presentationMode = query.has("presentation");
+if (presentationMode) document.body.classList.add("presentation-mode");
 if (captureMode) document.body.classList.add("capture-mode");
 const escape = (value: unknown) =>
   String(value).replace(
@@ -158,8 +161,8 @@ function setProbeMode(enabled: boolean) {
   probeMode = enabled;
   pressedKeys.clear();
   controls.enabled = !enabled;
-  $("probe-toggle").textContent = enabled ? "Return to orbit" : "Pilot virtual probe";
-  $("probe-status").textContent = enabled ? "Drag to look · WASD move · Q/E down/up · radius 0.12 scene units" : "Orbit inspection";
+  $("probe-toggle").textContent = presentationMode ? (enabled ? "Orbit view" : "Move around") : (enabled ? "Return to orbit" : "Pilot virtual probe");
+  $("probe-status").textContent = enabled ? (presentationMode ? "Drag to look · WASD move · Q/E down/up" : "Drag to look · WASD move · Q/E down/up · radius 0.12 scene units") : "Drag to orbit · Scroll to zoom";
   renderer.domElement.style.cursor = enabled ? "crosshair" : "grab";
   document.querySelector(".viewport-caption span:last-child")!.textContent = enabled ? "Virtual probe · generated mesh only · Esc to orbit" : "Drag to orbit · Scroll to explore";
 }
@@ -171,6 +174,27 @@ $("probe-collision").onclick = () => {
   $("probe-collision").textContent = checkbox.checked ? "Hide collision mesh" : "Show collision mesh";
 };
 $("probe-reset").onclick = () => { setCamera(Object.keys(data.cameras)[0]); };
+if (presentationMode) {
+  canvasHost.insertAdjacentHTML("beforeend", `<div id="presentation-revisions" role="group" aria-label="3D scene comparison"><button id="presentation-before" aria-pressed="false">Before repair</button><button id="presentation-after" aria-pressed="true">After repair</button></div><div id="touch-movement" aria-label="Movement controls"><button data-move="KeyW" aria-label="Move forward">↑</button><button data-move="KeyA" aria-label="Move left">←</button><button data-move="KeyS" aria-label="Move backward">↓</button><button data-move="KeyD" aria-label="Move right">→</button><button data-move="KeyQ" aria-label="Move down">−</button><button data-move="KeyE" aria-label="Move up">+</button></div>`);
+  for (const [id, accepted] of [["presentation-before", false], ["presentation-after", true]] as const) {
+    $(id).onclick = () => {
+      if (!ready) return;
+      applyRevision(accepted ? data.current_revision : data.revisions[0].id);
+      $("presentation-before").setAttribute("aria-pressed", String(!accepted));
+      $("presentation-after").setAttribute("aria-pressed", String(accepted));
+    };
+  }
+  document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach(button => {
+    button.onpointerdown = event => {
+      if (!ready) return;
+      if (!probeMode) setProbeMode(true);
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      pressedKeys.add(button.dataset.move!);
+    };
+    button.onpointerup = button.onpointercancel = button.onlostpointercapture = () => pressedKeys.delete(button.dataset.move!);
+  });
+}
 function setImmersive(enabled: boolean) {
   document.body.classList.toggle("immersive-mode", enabled);
   $("immersive-toggle").textContent = enabled ? "Show workspace" : "Expand scene";
@@ -237,7 +261,14 @@ renderer.setAnimationLoop(() => {
     const displacement = direction.multiplyScalar(Number(pressedKeys.has("KeyW")) - Number(pressedKeys.has("KeyS")))
       .addScaledVector(right, Number(pressedKeys.has("KeyD")) - Number(pressedKeys.has("KeyA")));
     displacement.y += Number(pressedKeys.has("KeyE")) - Number(pressedKeys.has("KeyQ"));
-    if (displacement.lengthSq()) moveProbe(displacement.normalize().multiplyScalar(elapsed * 1.2).toArray() as Vector);
+    if (displacement.lengthSq()) {
+      displacement.normalize().multiplyScalar(elapsed * (presentationMode ? 0.35 : 1.2));
+      if (presentationMode) {
+        // Exploration is free flight; collision testing remains a separate workspace tool.
+        camera.position.add(displacement);
+        controls.target.add(displacement);
+      } else moveProbe(displacement.toArray() as Vector);
+    }
   }
   if (!probeMode) controls.update();
   renderer.render(world, camera);
@@ -477,7 +508,7 @@ function metadata() {
     camera_matrix: camera.matrixWorld.toArray(),
     projection_matrix: camera.projectionMatrix.toArray(),
     metric_status: data.metric_status,
-    navigation_mode: probeMode ? "virtual_probe" : "orbit",
+    navigation_mode: probeMode ? (presentationMode ? "free_flight" : "virtual_probe") : "orbit",
     objects: loaded
       .filter((e) => e.root.visible)
       .map((e) => {
@@ -787,6 +818,7 @@ async function loadScene(id: string) {
   rendering = false;
   ready = true;
   $("loading").style.display = "none";
+  if (presentationMode) setProbeMode(true);
   $<HTMLTextAreaElement>("edit-json").value = JSON.stringify(
     {
       id: "edit-" + Date.now(),
@@ -813,7 +845,7 @@ function safeAction(action: () => Promise<unknown> | unknown) {
   };
 }
 async function refreshEvents() {
-  if (!data) return;
+  if (!data || presentationMode) return;
   const events = await api("scenes/" + data.id + "/events");
   if (!events.length) return;
   $("events").innerHTML = events
@@ -835,7 +867,7 @@ async function refreshEvents() {
     .join("");
 }
 async function refreshCompletion() {
-  if (captureMode) return;
+  if (captureMode || presentationMode) return;
   const runs = await api("completions");
   $("completion-evidence").innerHTML = runs.map((run: any) => `
     <div class="section-heading"><h2>Source completion</h2><span class="pill">${run.accepted ? "Input approved" : "Under review"}</span></div>
@@ -850,7 +882,7 @@ async function refreshCompletion() {
     ${!run.history.length ? `<p class="small">Inspecting the source image…</p>` : ""}
   `).join("");
 }
-if (!captureMode) setInterval(() => { void safeAction(refreshEvents)(); void safeAction(refreshCompletion)(); }, 8000);
+if (!captureMode && !presentationMode) setInterval(() => { void safeAction(refreshEvents)(); void safeAction(refreshCompletion)(); }, 8000);
 $("assets").onclick = (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-isolate]");
   if (button) void safeAction(() => inspectObject(button.dataset.isolate!))();
