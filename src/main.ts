@@ -170,11 +170,17 @@ $("probe-toggle").onclick = () => setProbeMode(!probeMode);
 $("probe-collision").onclick = () => {
   const checkbox = $<HTMLInputElement>("colliders");
   checkbox.checked = !checkbox.checked;
+  if (presentationMode) $<HTMLInputElement>("appearance").checked = !checkbox.checked;
   updateLayerVisibility();
-  $("probe-collision").textContent = checkbox.checked ? "Hide collision mesh" : "Show collision mesh";
+  $("probe-collision").setAttribute("aria-pressed", String(checkbox.checked));
+  $("probe-collision").textContent = presentationMode
+    ? (checkbox.checked ? "Textured view" : "Collision mesh")
+    : (checkbox.checked ? "Hide collision mesh" : "Show collision mesh");
 };
 $("probe-reset").onclick = () => { setCamera(Object.keys(data.cameras)[0]); };
 if (presentationMode) {
+  $("probe-collision").textContent = "Collision mesh";
+  $("probe-collision").setAttribute("aria-pressed", "false");
   canvasHost.insertAdjacentHTML("beforeend", `<div id="presentation-revisions" role="group" aria-label="3D scene comparison"><button id="presentation-before" aria-pressed="false">Before repair</button><button id="presentation-after" aria-pressed="true">After repair</button></div><div id="touch-movement" aria-label="Movement controls"><button data-move="KeyW" aria-label="Move forward">↑</button><button data-move="KeyA" aria-label="Move left">←</button><button data-move="KeyS" aria-label="Move backward">↓</button><button data-move="KeyD" aria-label="Move right">→</button><button data-move="KeyQ" aria-label="Move down">−</button><button data-move="KeyE" aria-label="Move up">+</button></div>`);
   for (const [id, accepted] of [["presentation-before", false], ["presentation-after", true]] as const) {
     $(id).onclick = () => {

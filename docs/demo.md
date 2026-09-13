@@ -2,7 +2,7 @@
 
 Updated September 13, 2026. The user's latest direction is to focus the demo on 3D simulation/exploration, not people-removal still images. Keep the interface simple and use one primary URL: **http://127.0.0.1:8000/**.
 
-The page opens the actual office reconstruction in an embedded Three.js/Spark viewer. Drag to look, use WASD to move and Q/E to change elevation. On-screen movement buttons also work. Before repair / After repair switches the actual scene revision while retaining the camera position. Reset view returns to the initial office camera; Orbit view offers an alternative navigation mode. Full screen expands the viewer.
+The page opens the actual office reconstruction in an embedded Three.js/Spark viewer. Drag to look, use WASD to move and Q/E to change elevation. On-screen movement buttons also work. Before repair / After repair switches the actual scene revision while retaining the camera position. Reset view returns to the initial office camera; Orbit view offers an alternative navigation mode. Full screen expands the viewer. Collision mesh switches to the actual collider wireframes; Textured view restores the room appearance. The same before/after and movement controls work in either view.
 
 The optional Quick comparison tab shows matched-camera renders of the original versus repaired table and chairs. It does not show people-removal images. The compact expandable diagram explains Inspect → Repair → Check → Keep or retry, with a short account of the actual assistant-led work and a Weave trace. There is no simulated live agent activity.
 
