@@ -41,6 +41,13 @@ def demo_record():
     }
     if (not snapshot and scene_path('office-rebuild').exists()
             and all(media_path(repair[key]).is_file() for key in ('before', 'after'))):
+        latest_path = DATA / 'demo' / 'repair-comparison.json'
+        if latest_path.exists():
+            latest = json.loads(latest_path.read_text())
+            scene = json.loads(scene_path('office-rebuild').read_text())
+            if (latest.get('revision_id') == scene['current_revision']
+                    and all(media_path(latest[key]).is_file() for key in ('before', 'after'))):
+                repair = {key: latest[key] for key in ('before', 'after', 'scope')}
         record['repair'] = repair
         world = {'scene_id': 'office-rebuild', 'status': 'Local furniture repairs recorded',
                  'detail': 'Assistant-led table and chair repairs. Generated room geometry remains distorted.'}
