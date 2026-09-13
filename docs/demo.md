@@ -45,3 +45,15 @@ The recorder creates `.artifacts/clean-room-imputation-demo.mp4`, a silent recor
 ## Verification at this checkpoint
 
 41 Python tests pass, including counter-evidence blocking acceptance, exact outside-crop preservation, mask restriction inside the crop, exhaustive uncertainty review, and rejection before world generation. The five-chapter browser check passes without page errors, verifies loaded evidence images and slider behavior, and checks an 800px layout. Production build passes; the existing Spark workspace bundle remains large. These checks establish implementation behavior, not scene reconstruction accuracy.
+
+## Portable private snapshot
+
+```sh
+uv run python scripts/package-demo.py .artifacts/recorded-demo-package
+```
+
+This packages the chapter images, available office scenes, geometry, references, and a timestamped status snapshot. It excludes credentials and provider job records. To replay on another machine, use the repository with `CLEANROOM_DATA_DIR` pointing to the package directory; start the backend and viewer as usual. The exported presentation labels its status as a recorded snapshot. It is not a resumable provider-job archive. The package contains private office images and is not included in Git.
+
+## Concise project description draft
+
+Clean Room Imputation explores turning an occupied office into the same virtual room without its occupants. W&B-powered agents inspect imagery, challenge broad judgments with localized evidence, request targeted corrections, and recheck preservation; a separate 3D loop compares matching camera views and rejects ineffective scene edits. The prototype demonstrates recorded image correction, partial furniture separation, and rejected 3D repair, with generated hidden geometry explicitly treated as inferred.

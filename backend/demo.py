@@ -8,10 +8,13 @@ def demo_record():
     scene_id = record.pop('restored_scene')
     fallback = record.pop('occupied_scene')
     run_id = record.pop('completion_run')
+    snapshot = record.pop('snapshot_world', None)
     if not run_id.replace('-', '').replace('_', '').isalnum():
         raise ValueError('Invalid completion run')
     directory = DATA / 'world-generation' / (run_id + '-world')
-    if scene_path(scene_id).exists():
+    if snapshot:
+        world = snapshot
+    elif scene_path(scene_id).exists():
         pipeline = DATA / 'completion' / run_id / 'pipeline.json'
         inspected = pipeline.exists() and json.loads(pipeline.read_text()).get('status') == 'built_and_inspected'
         world = {'scene_id': scene_id,
