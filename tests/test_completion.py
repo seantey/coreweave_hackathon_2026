@@ -168,3 +168,32 @@ def test_uncertainty_review_requires_every_question_and_keeps_visible_ambiguity(
     with pytest.raises(ValueError, match='each original question'):
         completion.review_visible_uncertainties('source', 'candidate', evaluation)
     assert completion.review_visible_uncertainties('source', 'candidate', evaluation)['visible_questions_resolved'] is False
+
+
+def test_regional_generation_receives_original_reference_at_matching_coordinates(tmp_path, monkeypatch):
+    import base64
+    import io
+    source = tmp_path / 'source.png'
+    original = Image.new('RGB', (400, 200), 'red')
+    original.paste('green', (200, 0, 400, 200))
+    original.save(source)
+    candidate = tmp_path / 'candidate.png'
+    Image.new('RGB', (200, 100), 'blue').save(candidate)
+    output = tmp_path / 'edit'
+    output.mkdir()
+    Image.new('RGB', (200, 100), 'blue').save(output / 'edited-crop.png')
+    received = []
+    def submit(endpoint, payload, directory):
+        received.extend(Image.open(io.BytesIO(base64.b64decode(value.split(',', 1)[1]))).copy()
+                        for value in payload['image_urls'])
+        path = directory / 'job.json'
+        path.write_text('{}')
+        return path
+    monkeypatch.setattr(completion.fal_jobs, 'submit', submit)
+    monkeypatch.setattr(completion.fal_jobs, 'resume', lambda *args, **kwargs: {})
+    completion.edit_completion(str(source), str(candidate), 'Preserve original furnishings', str(output),
+                               {'minimum': [.6, .2], 'maximum': [.9, .8]})
+    assert len(received) == 2
+    assert received[0].size == received[1].size
+    assert received[0].getpixel((100, 100)) == (0, 0, 255)
+    assert received[1].getpixel((100, 100)) == (0, 128, 0)

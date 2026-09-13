@@ -268,7 +268,17 @@ def edit_completion(
                 Image.Resampling.LANCZOS,
             )
             crop.save(output / "input-crop.png")
-        input_paths = (str(output / "input-crop.png"),)
+        with Image.open(original) as source:
+            reference_box = (
+                int(region.minimum[0] * source.width),
+                int(region.minimum[1] * source.height),
+                int(region.maximum[0] * source.width),
+                int(region.maximum[1] * source.height),
+            )
+            reference_crop = source.convert("RGB").crop(reference_box)
+            reference_crop = reference_crop.resize(crop.size, Image.Resampling.LANCZOS)
+            reference_crop.save(output / "reference-crop.png")
+        input_paths = (str(output / "input-crop.png"), str(output / "reference-crop.png"))
     if not job.exists():
         images = []
         for path in input_paths:
@@ -285,6 +295,7 @@ def edit_completion(
                 "original": original,
                 "candidate": candidate,
                 "crop_region": crop_region,
+                "image_roles": ["current candidate", "original source reference"],
             },
         )
         job = fal_jobs.submit(
