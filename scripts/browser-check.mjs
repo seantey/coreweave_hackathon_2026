@@ -7,7 +7,7 @@ const errors=[];
 try {
  const page=await browser.newPage({viewport:{width:1500,height:1000}});
  page.on('pageerror',error=>errors.push(error.message));
- await page.goto(process.env.VIEWER_URL??'http://127.0.0.1:5173/?scene=chair-probe');
+ await page.goto(process.env.VIEWER_URL??'http://127.0.0.1:5173/?workspace=1&scene=chair-probe');
  await page.waitForFunction(()=>window.cleanroom?.ready,{timeout:90000});
  await page.waitForTimeout(1500);
  const before=await page.evaluate(()=>window.cleanroom.metadata());

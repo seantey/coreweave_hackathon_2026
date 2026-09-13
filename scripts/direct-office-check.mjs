@@ -5,7 +5,7 @@ const browser=await chromium.launch({channel:'chrome',headless:true,args:['--use
 try {
  const page=await browser.newPage({viewport:{width:1600,height:1000}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:8000/?scene=office-rebuild');
+ await page.goto('http://127.0.0.1:8000/?workspace=1&scene=office-rebuild');
  await page.waitForFunction(()=>window.cleanroom?.ready,{}, {timeout:90000});
  await page.waitForTimeout(1500);
  const after=await page.evaluate(()=>window.cleanroom.metadata());

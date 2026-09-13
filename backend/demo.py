@@ -32,4 +32,16 @@ def demo_record():
         for name in ('before', 'after'):
             if not media_path(chapter[name]).is_file():
                 raise FileNotFoundError(chapter[name])
+    repair = {
+        'label': 'Repair furniture',
+        'before': 'captures/view-d6f5eda08d52/image.png',
+        'after': 'captures/view-de30fb660636/image.png',
+        'scope': '3D table and chair repair · same camera, before and after.',
+        'trace': 'https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09c29-918d-7315-b341-8345512beb11',
+    }
+    if (not snapshot and scene_path('office-rebuild').exists()
+            and all(media_path(repair[key]).is_file() for key in ('before', 'after'))):
+        record['repair'] = repair
+        world = {'scene_id': 'office-rebuild', 'status': 'Local furniture repairs recorded',
+                 'detail': 'Assistant-led table and chair repairs. Generated room geometry remains distorted.'}
     return {**record, 'world': world}
