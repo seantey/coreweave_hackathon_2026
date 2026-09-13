@@ -4,9 +4,10 @@ import weave
 from . import providers
 from .capture import capture
 from .models import Edit
+from .verification import VisualAssessment, compare_views
 from .storage import read_scene, propose, decide, event, identifier, media_path, write_json, DATA
 
-PROMPT_VERSION = "office-preservation-v1"
+PROMPT_VERSION = "office-preservation-v2"
 CLIENT = None
 
 
@@ -46,21 +47,27 @@ Do not transcribe screens or signs. Prompt version {PROMPT_VERSION}."""
 @weave.op()
 def evaluate_revision(scene_id: str, edit: dict, before: list[dict], after: list[dict]):
     scene=read_scene(scene_id)
+    mechanical = compare_views(before, after)
+    if not mechanical['visible_change']:
+        return {'prompt_version': PROMPT_VERSION, 'accepted': False, 'mechanical': mechanical,
+                'assessment': {'evidence': 'No measurable visible change in the compared views',
+                               'uncertainties': ['The proposed repair was not demonstrated']}}
     prompt=f"""Evaluate a proposed 3D scene repair against this unchanged goal: {scene.goal}
 Proposed edit: {json.dumps(edit)}.
 Images are ordered: {len(before)} BEFORE views, then {len(after)} AFTER views at exactly the same cameras.
 Camera names: {[v['camera_name'] for v in before]}.
+Any remaining images are original source references. Use them to check furniture identity and preservation.
 Assess actual visual evidence. An unchanged image is not improvement. Missing evidence means uncertain, not pass.
 Return JSON only: {{"defect_resolved":true|false|null,"furniture_preserved":true|false|null,
 "new_visible_damage":true|false|null,"evidence":string,"uncertainties":[string]}}.
-All three checks need decisive evidence to accept: resolved=true, preserved=true, damage=false.
+All three checks need decisive evidence to accept: resolved=true, preserved=true, damage=false, and no unresolved uncertainties.
 Do not reward removal of furniture or simply covering a defect. This checks rendered consistency, not unseen real geometry.
 Prompt version {PROMPT_VERSION}."""
-    result=providers.vision(prompt,[media_path(v["image"]) for v in before+after])
-    assessment=providers.structured(result["text"])
-    accepted=(assessment.get("defect_resolved") is True and assessment.get("furniture_preserved") is True
-              and assessment.get("new_visible_damage") is False)
-    return {"prompt_version":PROMPT_VERSION,"prompt":prompt,**result,"assessment":assessment,"accepted":accepted}
+    result=providers.vision(prompt,[media_path(v["image"]) for v in before+after]
+                            +[media_path(r) for r in scene.references[:1]])
+    assessment=VisualAssessment.model_validate(providers.structured(result["text"]))
+    return {"prompt_version":PROMPT_VERSION,"prompt":prompt,**result,"mechanical":mechanical,
+            "assessment":assessment.model_dump(),"accepted":assessment.passes()}
 
 
 @weave.op()
@@ -95,6 +102,10 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
             event(scene_id,"proposal_rejected",history[-1]);break
         event(scene_id,"candidate",{"job_id":job_id,"revision":revision.model_dump(mode="json")})
         try:
+            # Keep one available camera out of the repair proposal, then check it for regressions.
+            held_out = next((name for name in scene.cameras if name not in {v['camera_name'] for v in before}), None)
+            if held_out:
+                before.append(capture(scene_id,scene.current_revision,held_out))
             after=[capture(scene_id,revision.id,v["camera_name"]) for v in before]
             evaluation=evaluate_revision(scene_id,edit.model_dump(mode="json"),before,after)
             decide(scene_id,revision.id,evaluation["accepted"],evaluation)

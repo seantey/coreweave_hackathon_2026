@@ -6,9 +6,10 @@ or validate unseen real geometry. Keep the residual and candidate scores as evid
 import itertools, json, struct
 from pathlib import Path
 import numpy as np
+from scipy.spatial import cKDTree
 
 
-def splat_centers(path: Path, maximum=900):
+def splat_centers(path: Path, maximum=5000):
     with path.open('rb') as f:
         fields=[];count=0
         while True:
@@ -28,7 +29,7 @@ def splat_centers(path: Path, maximum=900):
     return points[np.linspace(0,len(points)-1,min(maximum,len(points)),dtype=int)]
 
 
-def mesh_points(path: Path, maximum=900):
+def mesh_points(path: Path, maximum=2500):
     with path.open('rb') as f:
         magic,version,_=struct.unpack('<4sII',f.read(12))
         if magic!=b'glTF' or version!=2:raise ValueError('Expected GLB version 2')
@@ -58,6 +59,9 @@ def fit(splat: Path, mesh: Path, metadata: dict):
     scale=np.array(metadata['scale']).reshape(3)
     translation=np.array(metadata['translation']).reshape(3)
     candidates=[]
+    target_tree=cKDTree(target)
+    def residual(points):
+        return float((target_tree.query(points)[0].mean()+cKDTree(points).query(target)[0].mean())/2)
     for convention,quaternion in [('xyzw',q),('wxyz',np.roll(q,-1))]:
         rotation=rotation_xyzw(quaternion)
         for permutation in itertools.permutations(range(3)):
@@ -66,12 +70,34 @@ def fit(splat: Path, mesh: Path, metadata: dict):
                 if np.linalg.det(axes)<0:continue
                 linear=rotation@np.diag(scale)@axes
                 points=source@linear.T+translation
-                squared=np.sum((points[:,None]-target[None,:])**2,axis=2)
-                loss=float((np.sqrt(squared.min(axis=0)).mean()+np.sqrt(squared.min(axis=1)).mean())/2)
+                loss=residual(points)
                 matrix=np.eye(4);matrix[:3,:3]=linear;matrix[:3,3]=translation
                 candidates.append({'residual':loss,'quaternion_order':convention,'axes':axes.tolist(),
                                    'matrix':matrix.T.reshape(-1).tolist()})
     candidates.sort(key=lambda c:c['residual'])
-    return {'method':'sampled bidirectional nearest-neighbor comparison of proper axis rotations',
-            'metric_status':'unverified','sample_count':len(source),'best':candidates[0],
-            'alternatives':candidates[1:4]}
+    # Metadata supplies an initial pose. Refine the leading hypotheses against the
+    # actual exported geometry, since provider exports can normalize assets differently.
+    refined=[]
+    for candidate in candidates[:8]:
+        matrix=np.array(candidate['matrix']).reshape(4,4).T.copy()
+        initial=candidate['residual']
+        for _ in range(60):
+            points=source@matrix[:3,:3].T+matrix[:3,3]
+            distances,indices=target_tree.query(points)
+            keep=distances<=np.quantile(distances,.95)
+            a=points[keep];b=target[indices[keep]]
+            ac=a-a.mean(axis=0);bc=b-b.mean(axis=0)
+            u,_,vt=np.linalg.svd(ac.T@bc)
+            rotation=vt.T@u.T
+            if np.linalg.det(rotation)<0:
+                vt[-1]*=-1;rotation=vt.T@u.T
+            offset=b.mean(axis=0)-rotation@a.mean(axis=0)
+            delta=np.eye(4);delta[:3,:3]=rotation;delta[:3,3]=offset
+            matrix=delta@matrix
+            if np.linalg.norm(offset)<1e-7 and np.linalg.norm(rotation-np.eye(3))<1e-6:break
+        loss=residual(source@matrix[:3,:3].T+matrix[:3,3])
+        refined.append({**candidate,'initial_residual':initial,'residual':loss,'matrix':matrix.T.reshape(-1).tolist()})
+    refined.sort(key=lambda c:c['residual'])
+    return {'method':'metadata convention search followed by trimmed rigid ICP; bidirectional sampled residual',
+            'metric_status':'unverified','sample_count':len(source),
+            'best':refined[0],'alternatives':refined[1:4]}

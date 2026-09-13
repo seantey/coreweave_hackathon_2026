@@ -57,3 +57,17 @@ def test_invalid_geometry_is_rejected():
     with pytest.raises(ValidationError):Transform(scale=(-1,1,1))
     with pytest.raises(ValidationError):Camera(position=(0,0,0),target=(0,0,0))
     with pytest.raises(ValidationError):Transform(position=(float('nan'),0,0))
+
+
+def test_protected_asset_cannot_be_moved(scene):
+    scene.assets[0].protected=True
+    storage.save_scene(scene)
+    edit=Edit(id='move',operation='transform_asset',asset_id='room',reason='Move protected asset',
+              evidence=['Front'],transform=Transform(position=(1,0,0)))
+    with pytest.raises(ValueError,match='protected'):storage.propose(scene.id,edit)
+
+
+def test_scaled_surface_cannot_bypass_size_limit(scene):
+    edit=Edit(id='surface',operation='add_surface',asset_id='surface',reason='Complete a surface',
+              evidence=['Front'],size=(1,1,1),transform=Transform(scale=(10,10,10)))
+    with pytest.raises(ValueError,match='size limit'):storage.propose(scene.id,edit)

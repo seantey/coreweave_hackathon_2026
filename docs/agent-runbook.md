@@ -34,7 +34,7 @@ For a SAM object with paired GLB and PLY, coordinate frames may differ. `align-s
 uv run python -m backend.cli align-sam office /path/to/sam-result.json
 ```
 
-This is an empirical initial alignment, not proof of exact registration. Inspect the overlay from several angles and preserve residuals. The tool only handles the tested untransformed single-mesh GLB form, and calibration must precede scene edits.
+The leading metadata candidates are refined with trimmed rigid ICP. This is empirical alignment, not proof of exact registration or physical scale. Inspect the overlay from several angles and preserve residuals. Appearance and collision visibility can be toggled independently. The tool only handles the tested untransformed single-mesh GLB form, and calibration must precede scene edits.
 
 ## Inspect before editing
 
@@ -68,7 +68,7 @@ The automated version is:
 uv run python -m backend.cli loop office --passes 2
 ```
 
-This spends W&B inference credits. It captures two views, requests a structured observation and proposal, can request one additional existing view, applies a candidate, and evaluates matched before/after views. The evaluator must explicitly report defect resolution, furniture preservation, and no new damage to accept. An inconclusive assessment stops or rejects. A rejected edit stops this initial loop rather than blindly repeating it. The current loop does not autonomously invoke asset generation or create arbitrary new camera poses yet.
+This spends W&B inference credits. It captures two views, requests a structured observation and proposal, can request one additional existing view, applies a candidate, and evaluates matched before/after views. When available, another camera is withheld from the proposal and added for regression checks. Mechanical checks reject mismatched cameras or unchanged images before paid evaluation. The evaluator must explicitly report defect resolution, furniture preservation, no new damage, and no unresolved uncertainties to accept. Original source references accompany the comparison. Malformed or inconclusive assessments reject the candidate. A rejected edit stops this initial loop rather than blindly repeating it. The current loop does not autonomously invoke asset generation or create arbitrary new camera poses yet.
 
 `reconstruct IMAGE --box '[x_min,y_min,x_max,y_max]'` is a separate paid fal tool. It submits once, saves the request id before polling, and downloads assets. If polling times out, use saved job information to resume rather than paying for a duplicate request. Generated output still needs inspection and import/placement; generation is not scene repair by itself.
 

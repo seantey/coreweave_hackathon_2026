@@ -18,12 +18,12 @@ The user explicitly proposed reusing the previous hackathon's Spark/Three.js app
 
 | Component | Intended role | Evidence boundary |
 | --- | --- | --- |
-| Mint / World Labs Marble | Initial scene generation and downloadable appearance/collision assets | Prior-project access reported by user; current-session tools await restart. No new office world generated yet. |
-| Spark + Three.js | Render splats and meshes, position inspection cameras, apply visual edits, place assets | Prior project used this stack; this application's renderer is not built. |
-| fal SAM 3D Objects | Reconstruct selected objects, potentially supplying both splats and meshes | One actual request returned a Gaussian PLY and GLB. Their appearance, segmentation quality, and room alignment remain untested. |
-| Programmatic geometry/editing | Surface completion, object transforms, local geometry and collider changes | Operations must be implemented and validated. No separate inpainting service is currently required. |
+| Mint / World Labs Marble | Initial scene generation and downloadable appearance/collision assets | Current OAuth refresh failed with invalid_grant and requires reauthentication. No new office world generated yet. |
+| Spark + Three.js | Render splats and meshes, position inspection cameras, apply visual edits, place assets | Viewer renders the local chair splat and mesh; browser checks pass. Room-scale operation remains untested. |
+| fal SAM 3D Objects | Reconstruct selected objects, potentially supplying both splats and meshes | One actual request returned a Gaussian PLY and GLB, now rendered. Exports have different coordinate frames; empirical registration is implemented. Room alignment remains untested. |
+| Programmatic geometry/editing | Surface completion, object transforms, local geometry and collider changes | Reversible edit primitives are implemented. Scene-quality improvement remains unvalidated. No separate inpainting service is currently required. |
 | W&B Inference | GLM-5.3-Flash image observations and potentially agent decisions | One completed image-description test; reliability as a defect evaluator is unvalidated. Native video support is not established. |
-| Weave | Trace tool/model calls and record evaluations and revisions | A connectivity trace was sent. Production loop instrumentation is not implemented. |
+| Weave | Trace tool/model calls and record evaluations and revisions | Connectivity trace succeeded; bounded loop instrumentation is implemented. A real repair-loop trace remains to be demonstrated. |
 
 Tripo is deferred at the user's request; do not make it a dependency. TypeSafe is optional and should only be introduced if it demonstrably helps. ARIA, marimo, and separate cloud GPU provisioning are not selected dependencies.
 

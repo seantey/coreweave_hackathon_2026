@@ -122,10 +122,10 @@ def validate_edit(scene: Scene, edit: Edit):
     assets = {a.id: a for a in scene.assets}
     if edit.operation != "add_surface" and edit.asset_id not in assets:
         raise ValueError("Unknown target asset")
+    if edit.operation != 'add_surface' and assets[edit.asset_id].protected:
+        raise ValueError('Target is protected')
     if edit.operation == "hide_region":
         target = assets[edit.asset_id]
-        if target.protected:
-            raise ValueError("Target is protected")
         if target.kind != "splat":
             raise ValueError("Region removal currently supports splats only")
         if edit.bounds.volume() > scene.bounds.volume() * 0.12:
@@ -133,6 +133,6 @@ def validate_edit(scene: Scene, edit: Edit):
         if any(a < s or b > e for a,b,s,e in zip(edit.bounds.minimum,edit.bounds.maximum,scene.bounds.minimum,scene.bounds.maximum)):
             raise ValueError("Removal extends outside declared scene bounds")
     if edit.operation == "add_surface":
-        if math.prod(edit.size) > scene.bounds.volume() * 0.12:
+        if math.prod(edit.size) * math.prod(edit.transform.scale) > scene.bounds.volume() * 0.12:
             raise ValueError("Surface completion exceeds edit size limit")
     return edit
