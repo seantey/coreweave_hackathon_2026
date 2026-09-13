@@ -493,6 +493,43 @@ async function isolateAsset(id: string | null) {
   return metadata();
 }
 
+function focusAsset(id: string) {
+  const entry = loaded.find((asset) => asset.asset.id === id);
+  if (!entry) throw new Error("Unknown asset");
+  const bounds = new THREE.Box3().setFromObject(entry.collider ?? entry.root);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.7, 0.05);
+  const direction = camera.position.clone().sub(center).normalize();
+  if (!direction.lengthSq()) direction.set(0, 0.3, 1).normalize();
+  camera.position.copy(center).addScaledVector(direction, radius / Math.tan(THREE.MathUtils.degToRad(27.5)));
+  controls.target.copy(center);
+  camera.fov = 55;
+  camera.updateProjectionMatrix();
+  controls.update();
+  activeCamera = `Object: ${entry.asset.label}`;
+  $("camera-label").textContent = activeCamera;
+  return metadata();
+}
+let previousInspectionPose: Camera | null = null;
+async function inspectObject(id: string) {
+  if (isolatedAsset === id) {
+    await isolateAsset(null);
+    if (previousInspectionPose) {
+      camera.position.fromArray(previousInspectionPose.position);
+      controls.target.fromArray(previousInspectionPose.target);
+      camera.fov = previousInspectionPose.fov;
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+    previousInspectionPose = null;
+  } else {
+    if (!previousInspectionPose) previousInspectionPose = {position: camera.position.toArray() as Vector, target: controls.target.toArray() as Vector, fov: camera.fov};
+    await isolateAsset(id);
+    focusAsset(id);
+  }
+  await settle();
+}
+
 Object.assign(window, {
   cleanroom: {
     get ready() {
@@ -504,6 +541,7 @@ Object.assign(window, {
       return metadata();
     },
     isolateAsset,
+    focusAsset,
     metadata,
     pick,
     probeRegion,
@@ -691,6 +729,7 @@ async function refreshCompletion() {
       <a href="${media(step.candidate)}" target="_blank"><img src="${media(step.candidate)}" alt="Source completion pass ${index}"></a>
       <strong>Pass ${index} · ${step.accepted ? "Approved as input" : "Needs correction"}</strong>
       <p>${escape(step.assessment.evidence)}</p>
+      ${step.person_audit?.people_count ? `<p class="audit-warning">Localized review found ${step.person_audit.people_count} remaining person candidate(s). Input remains unapproved.</p>` : ""}
       ${step.assessment.remaining_issues.length ? `<ul>${step.assessment.remaining_issues.map((issue: string) => `<li>${escape(issue)}</li>`).join("")}</ul>` : ""}
     </article>`).join("")}
     ${!run.history.length ? `<p class="small">Inspecting the source image…</p>` : ""}
@@ -699,7 +738,7 @@ async function refreshCompletion() {
 if (!captureMode) setInterval(() => { void safeAction(refreshEvents)(); void safeAction(refreshCompletion)(); }, 8000);
 $("assets").onclick = (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-isolate]");
-  if (button) void safeAction(() => isolateAsset(isolatedAsset === button.dataset.isolate ? null : button.dataset.isolate!))();
+  if (button) void safeAction(() => inspectObject(button.dataset.isolate!))();
 };
 $("refresh").onclick = safeAction(refreshEvents);
 $("scene-select").onchange = safeAction(() =>
@@ -815,7 +854,7 @@ async function start() {
       "<p>No scene imported yet.<br>Use the import command to add a reconstruction.</p>";
     return;
   }
-  const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
+  const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office-clean")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office-textured")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
   $<HTMLSelectElement>("scene-select").value = id;
   await loadScene(id);
   await refreshCompletion();

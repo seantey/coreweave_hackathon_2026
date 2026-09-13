@@ -62,3 +62,71 @@ def test_ambiguous_outcome_cannot_pass():
         uncertainties=["Shape behind divider is unresolved"],
     )
     assert not assessment.passes()
+
+
+def test_unapproved_input_cannot_start_world_generation(tmp_path, monkeypatch):
+    import json
+    import pytest
+
+    monkeypatch.setattr(completion, "DATA", tmp_path)
+    directory = tmp_path / "completion" / "uncertain"
+    directory.mkdir(parents=True)
+    (directory / "summary.json").write_text(json.dumps({"accepted": False}))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Do not spend on unapproved input")
+
+    monkeypatch.setattr(completion.fal_jobs, "submit", forbidden)
+    with pytest.raises(ValueError, match="not passed"):
+        completion.reconstruct_completion("uncertain", "room", "reference.png")
+
+
+def test_localized_person_evidence_blocks_broad_absence_verdict(tmp_path, monkeypatch):
+    monkeypatch.setattr(completion, "DATA", tmp_path)
+    source = tmp_path / "source.png"
+    Image.new("RGB", (40, 20), "red").save(source)
+    monkeypatch.setattr(
+        completion,
+        "evaluate_completion",
+        lambda *args: {"accepted": True, "assessment": {"people_absent": True}},
+    )
+    monkeypatch.setattr(
+        completion,
+        "audit_completion_people",
+        lambda *args: {
+            "people_count": 1,
+            "uncertain_count": 0,
+            "sheets": [],
+            "detections": [{"classification": "person"}],
+        },
+    )
+    result = completion.completion_loop(str(source), "audit-example", 0)
+    assert result["accepted"] is False
+    assert result["history"][0]["evaluation"].endswith(
+        "evaluation-with-person-audit.json"
+    )
+
+
+def test_regional_edit_preserves_every_pixel_outside_crop(tmp_path, monkeypatch):
+    import numpy as np
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (100, 50), "red").save(source)
+    output = tmp_path / "edit"
+    output.mkdir()
+    (output / "job.json").write_text("{}")
+    Image.new("RGB", (200, 100), "blue").save(output / "edited-crop.png")
+    monkeypatch.setattr(completion.fal_jobs, "resume", lambda *args, **kwargs: {})
+    result = completion.edit_completion(
+        str(source),
+        str(source),
+        "Remove the observed person",
+        str(output),
+        {"minimum": [0.3, 0.2], "maximum": [0.7, 0.8]},
+    )
+    original = np.array(Image.open(source))
+    edited = np.array(Image.open(result["candidate"]))
+    outside = np.ones((50, 100), dtype=bool)
+    outside[10:40, 30:70] = False
+    assert np.array_equal(original[outside], edited[outside])
+    assert not np.array_equal(original[25, 50], edited[25, 50])

@@ -2,7 +2,7 @@
 
 Reconstruct an occupied office as if nobody were there, preserving its furniture, layout, and visual consistency. The intended system uses agents to inspect a reconstruction, make targeted edits, and check their effects.
 
-**Status — September 13, 2026:** initial local application implemented: Spark/Three.js viewer, camera capture, reversible scene revisions, provider adapters, reusable asset placement, geometry probes, and a bounded inspection/repair loop. Local rollback checks pass, and a live W&B inspection stops appropriately on the isolated chair. The existing chair reconstruction is the initial test asset. No end-to-end restoration of the occupied office has been demonstrated.
+**Status — September 13, 2026:** the local app renders a textured office reconstruction, separates six chair candidates with individual colliders, captures inspection views, and runs W&B-traced source-completion and 3D inspection loops. Chair partitioning preserved every triangle and the rendered screenshot exactly. The source loop has generated corrections and caught a remaining person through a segmentation/crop cross-check after the broad vision model missed it. A fully restored office and an accepted autonomous 3D repair are still unverified. Marble generation is unavailable through the current Mint route; the live office uses a disclosed Hunyuan fallback.
 
 Read [the build brief](docs/build-brief.md) for user intent, the proposed technical approach, evaluation questions, and known limits. Coding agents should also read [AGENTS.md](AGENTS.md).
 

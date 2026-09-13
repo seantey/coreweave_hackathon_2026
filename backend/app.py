@@ -69,7 +69,13 @@ def completions():
         steps = []
         for step in summary["history"]:
             evaluation = json.loads(media_path(step["evaluation"]).read_text())
-            steps.append({**step, "assessment": evaluation["assessment"]})
+            steps.append(
+                {
+                    **step,
+                    "assessment": evaluation["assessment"],
+                    "person_audit": evaluation.get("person_audit"),
+                }
+            )
         records.append({**summary, "history": steps})
     return records
 

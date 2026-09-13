@@ -5,6 +5,7 @@ This prepares reconstruction inputs; it does not claim that a 2D verdict validat
 """
 
 import base64
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -12,9 +13,9 @@ import httpx
 import weave
 from PIL import Image
 from pydantic import Field, StrictBool
-from .models import StrictModel
+from .models import StrictModel, ImageRegion
 from . import agent, providers, fal_jobs
-from .storage import DATA, write_json
+from .storage import DATA, write_json, media_path
 
 VERSION = "source-preservation-v1"
 GOAL = "Recreate the same office as if nobody were there. Preserve furniture, layout, architecture, belongings, lighting and visual identity. Reconstruct only what people occluded."
@@ -44,6 +45,7 @@ class Plan(StrictModel):
     action: str
     reason: str = Field(min_length=5)
     edit_prompt: str | None = None
+    crop_region: ImageRegion | None = None
 
 
 def read_images(paths):
@@ -63,7 +65,12 @@ Image 1 is the original source; image 2 is the candidate. Identify actual visibl
 Check whether original visible furniture, architecture, belongings and camera composition are preserved. Plausible newly exposed surfaces are inferred, not physical ground truth. Judge visible consistency here; do not fail solely because the real hidden surface cannot be known.
 Return concise JSON with keys people_absent, furniture_preserved, layout_preserved, new_visible_damage (each boolean or null), evidence (string), remaining_issues (list of specific visible defects with locations), uncertainties (list of unresolved visible ambiguities). Missing evidence is null, not pass. Version {VERSION}."""
     result = agent.vision_review(prompt, read_images([original, candidate]))
-    assessment = Assessment.model_validate(providers.structured(result["text"]))
+    parsed = providers.structured(result["text"])
+    # Some responses echo the requested version as metadata. It is not a verdict
+    # field; only the exact known value may be omitted before strict validation.
+    if parsed.get("version") == VERSION:
+        parsed.pop("version")
+    assessment = Assessment.model_validate(parsed)
     return {
         "prompt_version": VERSION,
         "prompt": prompt,
@@ -74,13 +81,94 @@ Return concise JSON with keys people_absent, furniture_preserved, layout_preserv
 
 
 @weave.op()
+def audit_completion_people(candidate: str, directory: str):
+    from .segmentation import segment
+    from .mask_review import review_segmentation
+
+    output = Path(directory)
+    output.mkdir(parents=True, exist_ok=True)
+    reference_path = output / "segmentation-reference.json"
+    if reference_path.exists():
+        segmentation_path = media_path(
+            json.loads(reference_path.read_text())["segmentation"]
+        )
+        record = json.loads(segmentation_path.read_text())
+        if (
+            hashlib.sha256(media_path(record["source_image"]).read_bytes()).digest()
+            != hashlib.sha256(Path(candidate).read_bytes()).digest()
+        ):
+            raise ValueError("Person audit belongs to another candidate")
+    else:
+        record = segment(
+            Path(candidate),
+            "person",
+            maximum_masks=12,
+            directory=output / "segmentation",
+        )
+        segmentation_path = output / "segmentation" / "segmentation.json"
+        write_json(
+            reference_path, {"segmentation": str(segmentation_path.relative_to(DATA))}
+        )
+    reviewed = review_segmentation(str(segmentation_path))
+    detections = [
+        {
+            **decision,
+            "box_normalized_cxcywh": record["masks"][decision["mask_id"]]["box"],
+        }
+        for decision in reviewed["decisions"]
+    ]
+    result = {
+        "detections": detections,
+        "people_count": sum(
+            d["classification"] in ("person", "mixed_person_and_furniture")
+            for d in detections
+        ),
+        "uncertain_count": sum(d["classification"] == "uncertain" for d in detections),
+        "sheets": [
+            str(path.relative_to(DATA))
+            for path in sorted(segmentation_path.parent.glob("review-*.png"))
+        ],
+        "scope": "Independent detector plus crop review; detections are fallible and zero detections alone cannot prove absence",
+    }
+    write_json(output / "audit.json", result)
+    return result
+
+
+@weave.op()
 def plan_completion(original: str, candidate: str, evaluation: dict):
     prompt = f"""You control an image-completion tool to achieve: {GOAL}
 Image 1 is the original; image 2 is the latest candidate. Evaluation feedback: {json.dumps(evaluation['assessment'])}.
 Choose one targeted correction or stop if the evidence is insufficient. The editing tool will receive the latest candidate first and the original second. Preserve source composition and exact aspect ratio. It must remove people without removing furniture or belongings. Treat detections as fallible; explain actual evidence.
-Return JSON: {{"action":"edit"|"stop","reason":string,"edit_prompt":string|null}}.
+Return JSON: {{"action":"edit"|"stop","reason":string,"edit_prompt":string|null,"crop_region":null|{{"minimum":[left,top],"maximum":[right,bottom]}}}}.
+For a single small remaining person, use crop_region in normalized candidate coordinates to isolate that person plus nearby context (roughly 5-15% of image width). The tool edits that crop at larger resolution and composites it back, keeping outside pixels exactly unchanged. Write the edit prompt for this crop, not for the whole panorama. A whole-image edit often misses tiny background figures.
 The edit_prompt must be a complete, concrete instruction to the image model, naming locations and what must remain unchanged. Do not merely ask it to improve quality or beautify the office. Keep the same panoramic projection if the input is a panorama."""
-    result = agent.vision_review(prompt, read_images([original, candidate]))
+    images = read_images([original, candidate])
+    if evaluation.get("person_audit"):
+        prompt += (
+            "\nAn independent person segmentation and localized crop review provides counter-evidence: "
+            + json.dumps(evaluation["person_audit"])
+            + ". Additional images are its enlarged crop/mask sheets. Inspect these actual pixels; do not dismiss a localized head and torso because a broad scene description said people were absent. The normalized boxes locate each detection in the candidate."
+        )
+        images += read_images(
+            [media_path(path) for path in evaluation["person_audit"]["sheets"]]
+        )
+    elif evaluation["assessment"].get("uncertainties"):
+        prompt += "\nAdditional images are four ORIGINAL/CANDIDATE crop pairs, left to right across the horizon band (normalized y=0.38 to 0.72). Inspect these enlarged details to resolve the reported ambiguities before choosing an edit. They are crops of the same inputs, not additional captured viewpoints."
+        for column in range(4):
+            for path in (original, candidate):
+                with Image.open(path) as full:
+                    width, height = full.size
+                    crop = full.convert("RGB").crop(
+                        (
+                            int(column * width / 4),
+                            int(0.38 * height),
+                            int((column + 1) * width / 4),
+                            int(0.72 * height),
+                        )
+                    )
+                    crop.thumbnail((900, 700))
+                    images.append(crop)
+    result = agent.vision_review(prompt, images)
     plan = Plan.model_validate(providers.structured(result["text"]))
     if plan.action not in ("edit", "stop") or (
         plan.action == "edit" and not plan.edit_prompt
@@ -90,13 +178,39 @@ The edit_prompt must be a complete, concrete instruction to the image model, nam
 
 
 @weave.op()
-def edit_completion(original: str, candidate: str, instruction: str, directory: str):
+def edit_completion(
+    original: str,
+    candidate: str,
+    instruction: str,
+    directory: str,
+    crop_region: dict | None = None,
+):
     output = Path(directory)
     output.mkdir(parents=True, exist_ok=True)
     job = output / "job.json"
+    crop_box = None
+    input_paths = (candidate, original)
+    if crop_region:
+        region = ImageRegion.model_validate(crop_region)
+        with Image.open(candidate) as full:
+            crop_box = (
+                int(region.minimum[0] * full.width),
+                int(region.minimum[1] * full.height),
+                int(region.maximum[0] * full.width),
+                int(region.maximum[1] * full.height),
+            )
+            if crop_box[2] - crop_box[0] < 8 or crop_box[3] - crop_box[1] < 8:
+                raise ValueError("Crop is too small for a meaningful edit")
+            crop = full.convert("RGB").crop(crop_box)
+            crop = crop.resize(
+                (1024, max(32, round(1024 * crop.height / crop.width))),
+                Image.Resampling.LANCZOS,
+            )
+            crop.save(output / "input-crop.png")
+        input_paths = (str(output / "input-crop.png"),)
     if not job.exists():
         images = []
-        for path in (candidate, original):
+        for path in input_paths:
             with Image.open(path) as image:
                 mime = Image.MIME.get(image.format, "image/png")
             images.append(
@@ -105,7 +219,12 @@ def edit_completion(original: str, candidate: str, instruction: str, directory: 
             )
         write_json(
             output / "instruction.json",
-            {"prompt": instruction, "original": original, "candidate": candidate},
+            {
+                "prompt": instruction,
+                "original": original,
+                "candidate": candidate,
+                "crop_region": crop_region,
+            },
         )
         job = fal_jobs.submit(
             "fal-ai/nano-banana-2/edit",
@@ -120,7 +239,7 @@ def edit_completion(original: str, candidate: str, instruction: str, directory: 
             output,
         )
     result = fal_jobs.resume(job, timeout=900)
-    path = output / "candidate.png"
+    path = output / ("edited-crop.png" if crop_box else "candidate.png")
     if not path.exists():
         with httpx.Client(timeout=120, follow_redirects=True) as client:
             response = client.get(result["images"][0]["url"])
@@ -130,6 +249,29 @@ def edit_completion(original: str, candidate: str, instruction: str, directory: 
             with Image.open(temporary) as image:
                 image.verify()
             temporary.replace(path)
+    if crop_box:
+        import numpy as np
+
+        with Image.open(candidate) as full, Image.open(path) as patch:
+            full = full.convert("RGB")
+            size = (crop_box[2] - crop_box[0], crop_box[3] - crop_box[1])
+            patch = patch.convert("RGB").resize(size, Image.Resampling.LANCZOS)
+            yy, xx = np.indices((size[1], size[0]))
+            distance = np.minimum.reduce([xx, yy, size[0] - 1 - xx, size[1] - 1 - yy])
+            feather = max(2, min(size) // 12)
+            alpha = Image.fromarray(np.uint8(np.clip(distance / feather, 0, 1) * 255))
+            full.paste(patch, crop_box[:2], alpha)
+            path = output / "candidate.png"
+            full.save(path)
+        write_json(
+            output / "composition.json",
+            {
+                "box_pixels": crop_box,
+                "crop_region": crop_region,
+                "feather_pixels": feather,
+                "outside_pixels": "unchanged",
+            },
+        )
     with Image.open(original) as source, Image.open(path) as edited:
         if (
             abs((source.width / source.height) / (edited.width / edited.height) - 1)
@@ -156,11 +298,23 @@ def completion_loop(
     directory = DATA / "completion" / run_id
     directory.mkdir(parents=True, exist_ok=True)
     original = directory / ("original" + Path(source).suffix.lower())
+    if (
+        original.exists()
+        and hashlib.sha256(original.read_bytes()).digest()
+        != hashlib.sha256(Path(source).read_bytes()).digest()
+    ):
+        raise ValueError("Run id already belongs to a different source image")
     if not original.exists():
         shutil.copy2(source, original)
     candidate = original
     if initial_candidate:
         candidate = directory / ("initial" + Path(initial_candidate).suffix.lower())
+        if (
+            candidate.exists()
+            and hashlib.sha256(candidate.read_bytes()).digest()
+            != hashlib.sha256(Path(initial_candidate).read_bytes()).digest()
+        ):
+            raise ValueError("Run id already belongs to a different initial candidate")
         if not candidate.exists():
             shutil.copy2(initial_candidate, candidate)
     history = []
@@ -170,9 +324,25 @@ def completion_loop(
         evaluation_path = step / "evaluation.json"
         if evaluation_path.exists():
             evaluation = json.loads(evaluation_path.read_text())
+            if evaluation.get("prompt_version", VERSION) != VERSION:
+                raise ValueError("Evaluation version changed; use a new run id")
         else:
             evaluation = evaluate_completion(str(original), str(candidate))
             write_json(evaluation_path, evaluation)
+        person_audit = None
+        if evaluation["assessment"].get("people_absent") is True:
+            person_audit = audit_completion_people(
+                str(candidate), str(step / "person-audit")
+            )
+            evaluation = {**evaluation, "person_audit": person_audit}
+            evaluation["accepted"] = bool(
+                evaluation["accepted"]
+                and person_audit["people_count"] == 0
+                and person_audit["uncertain_count"] == 0
+            )
+            combined_path = step / "evaluation-with-person-audit.json"
+            write_json(combined_path, evaluation)
+            evaluation_path = combined_path
         history.append(
             {
                 "candidate": str(candidate.relative_to(DATA)),
@@ -191,7 +361,9 @@ def completion_loop(
         write_json(directory / "summary.json", summary)
         if evaluation["accepted"] or index == max_edits:
             return summary
-        plan_path = step / "plan.json"
+        plan_path = step / (
+            "plan-with-person-audit.json" if person_audit else "plan.json"
+        )
         if plan_path.exists():
             planned = json.loads(plan_path.read_text())
         else:
@@ -206,6 +378,11 @@ def completion_loop(
             str(candidate),
             planned["plan"]["edit_prompt"],
             str(step / "edit"),
+            **(
+                {"crop_region": planned["plan"]["crop_region"]}
+                if planned["plan"].get("crop_region")
+                else {}
+            ),
         )
         candidate = Path(edited["candidate"])
     raise AssertionError("Completion loop did not terminate")

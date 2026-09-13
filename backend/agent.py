@@ -19,7 +19,7 @@ from .storage import (
     save_camera,
 )
 
-PROMPT_VERSION = "office-preservation-v5"
+PROMPT_VERSION = "office-preservation-v6"
 CLIENT = None
 
 
@@ -52,7 +52,12 @@ def review_paths(prompt, paths):
 
 
 @weave.op()
-def observe_scene(scene_id: str, revision_id: str, views: list[dict]):
+def observe_scene(
+    scene_id: str,
+    revision_id: str,
+    views: list[dict],
+    inspection_history: list[dict] | None = None,
+):
     scene = read_scene(scene_id)
     recent_attempts = [
         {
@@ -72,6 +77,7 @@ The first images are simulation views; their camera metadata is {json.dumps(view
 Any final images are original references, not current renderings.
 Asset inventory: {json.dumps([a.model_dump() for a in scene.assets])}
 Recent attempted edits and evaluator feedback: {json.dumps(recent_attempts)}.
+Earlier findings in this inspection: {json.dumps(inspection_history or [])}. Resolve contradictions explicitly. An asset cannot be described as person-only while also containing a fused chair. Do not forget earlier evidence when another view arrives.
 When an edit was rejected, use the evidence to revise the hypothesis or stop. Do not repeat the same edit.
 All lengths are arbitrary scene units unless metric_status is explicitly calibrated. Never label them meters or infer real furniture size from them. World up and semantic front are also unverified for imported objects.
 Scene bounds (world coordinates): {scene.bounds.model_dump()}.
@@ -173,6 +179,7 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
         )
         choice = observation["assessment"]
         inspection_views = []
+        inspection_history = [choice]
         inspected_assets = set()
         tool_requests = set()
         for tool_round in range(6):
@@ -246,7 +253,10 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
                 if action != "isolate":
                     before = [v for v in before if v["camera_name"] != name] + [view]
                 observation = observe_scene(
-                    scene_id, scene.current_revision, before + inspection_views
+                    scene_id,
+                    scene.current_revision,
+                    before + inspection_views,
+                    inspection_history,
                 )
                 event(
                     scene_id,
@@ -260,6 +270,7 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
                     },
                 )
                 choice = observation["assessment"]
+                inspection_history.append(choice)
             except ValueError as error:
                 choice = {
                     "next_action": "stop",
@@ -282,7 +293,13 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
             )
             break
         try:
-            edit = Edit.model_validate({**choice["edit"], "id": identifier("edit")})
+            arguments = {**choice["edit"], "id": identifier("edit")}
+            if (
+                arguments.get("color") is None
+                and arguments.get("operation") != "add_surface"
+            ):
+                arguments.pop("color", None)
+            edit = Edit.model_validate(arguments)
             if edit.operation == "hide_asset" and edit.asset_id not in inspected_assets:
                 raise ValueError(
                     "Inspect the isolated asset before proposing its removal"

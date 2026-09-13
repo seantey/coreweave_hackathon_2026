@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import weave
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from pydantic import Field, StrictBool
 from typing import Literal
 from .models import StrictModel
@@ -45,7 +45,7 @@ def review_sheet(source: Image.Image, masks: list[tuple[int, Image.Image]]):
         tint = Image.new("RGB", crop.size, (244, 72, 99))
         overlay = Image.composite(Image.blend(crop, tint, 0.55), crop, local_mask)
         for column, image in enumerate([crop, overlay]):
-            image.thumbnail((460, 220))
+            image = ImageOps.contain(image, (460, 220), Image.Resampling.LANCZOS)
             sheet.paste(
                 image,
                 (
@@ -74,8 +74,13 @@ def review_segmentation(segmentation_path: str):
             (start + index, Image.open(media_path(item["path"])).convert("L"))
             for index, item in enumerate(selected)
         ]
-        sheet = review_sheet(source, masks)
-        sheet.save(path.parent / f"review-{start:02}.png")
+        sheet_path = path.parent / f"review-{start:02}.png"
+        checkpoint = path.parent / f"review-{start:02}-response.json"
+        if checkpoint.exists() and sheet_path.exists():
+            sheet = Image.open(sheet_path).convert("RGB")
+        else:
+            sheet = review_sheet(source, masks)
+            sheet.save(sheet_path)
         prompt = f"""Review person-segmentation candidates from a source office photo. The first image is the source.
 The second contains paired crops: unmodified on the left, selected mask tinted red on the right.
 Judge ONLY the red selected pixels, not every object in the crop. Preserve chairs, desks, monitors and belongings.
@@ -84,7 +89,6 @@ Each decision: {{"mask_id":integer,"classification":"person"|"mixed_person_and_f
 "visible_person_only":boolean,"explanation":string}}. Keep explanations under 25 words.
 Use visible_person_only=true only for a visible person mask with no furniture included. Low-resolution ambiguity is uncertain.
 Do not infer identity or transcribe screens/signs. This assesses two-dimensional masks, not reconstructed geometry or hidden surfaces."""
-        checkpoint = path.parent / f"review-{start:02}-response.json"
         if checkpoint.exists():
             response = json.loads(checkpoint.read_text())
         else:

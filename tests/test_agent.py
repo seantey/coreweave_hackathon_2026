@@ -214,7 +214,7 @@ def test_inspection_tools_can_run_in_model_selected_order(workspace, monkeypatch
     )
     seen_views = []
 
-    def observe(scene_id, revision, views):
+    def observe(scene_id, revision, views, inspection_history=None):
         seen_views.append(list(views))
         return {"assessment": next(choices)}
 

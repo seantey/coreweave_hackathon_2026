@@ -6,9 +6,9 @@ import zipfile
 from pathlib import Path
 import numpy as np
 import trimesh
-from scipy.spatial import cKDTree
 from PIL import Image
 from .download import download_archive
+from .panorama_texture import texture_panorama
 from .models import Asset, Bounds, Camera, Revision, Scene, Transform
 from .storage import DATA, scene_path, save_scene, timestamp, write_json, event
 
@@ -51,14 +51,13 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
             if original_count > budget
             else mesh.copy()
         )
-        _, nearest = cKDTree(mesh.vertices).query(simplified.vertices)
-        colors = np.asarray(mesh.visual.vertex_colors)[nearest].copy()
-        srgb = colors[:, :3] / 255.0
-        linear = np.where(
-            srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4
-        )
-        colors[:, :3] = np.round(linear * 255).astype(np.uint8)
-        simplified.visual.vertex_colors = colors
+        texture_name = [
+            "full_image_sr.png",
+            "remove_fg1_image_sr.png",
+            "remove_fg2_image_sr.png",
+            "sky_image_sr.png",
+        ][index]
+        simplified = texture_panorama(simplified, extracted / texture_name)
         output = directory / f"layer-{index}.glb"
         simplified.export(output)
         labels = []
@@ -85,7 +84,7 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
                 unlit=True,
                 protected=index >= 2,
                 transform=Transform(rotation=(-math.pi / 2, 0, -math.pi / 2)),
-                provenance="Hunyuan panorama reconstruction; layer labels are detector hypotheses. Hidden surfaces, physical scale, and source fidelity are unverified. Mesh simplified with nearest-source color transfer.",
+                provenance="Hunyuan panorama reconstruction; layer labels are detector hypotheses. Hidden surfaces, physical scale, and source fidelity are unverified. Geometry simplified; appearance projected from the corresponding generated panorama.",
             )
         )
         records.append(
@@ -158,7 +157,7 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
                 if (extracted / filename).exists()
             },
             "orientation": "Official viewer rotateX(-pi/2), rotateZ(-pi/2)",
-            "color": "Input sRGB vertex colors converted to linear for glTF",
+            "appearance": "Spherical panorama texture on simplified mesh; seam vertices split without changing triangles",
         },
     )
     event(
