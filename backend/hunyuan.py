@@ -54,8 +54,10 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
         mesh = trimesh.load(path, process=False)
         original_count = len(mesh.faces)
         budget = 150_000 if index < 2 else 400_000 if index == 2 else 40_000
-        simplified = mesh.simplify_quadric_decimation(
-            face_count=min(budget, original_count)
+        simplified = (
+            mesh.simplify_quadric_decimation(face_count=budget)
+            if original_count > budget
+            else mesh.copy()
         )
         _, nearest = cKDTree(mesh.vertices).query(simplified.vertices)
         colors = np.asarray(mesh.visual.vertex_colors)[nearest].copy()
@@ -77,9 +79,7 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
             else (
                 "Background completion"
                 if index == 2
-                else "Distant shell"
-                if index == 3
-                else f"Layer {index}"
+                else "Distant shell" if index == 3 else f"Layer {index}"
             )
         )
         relative = str(output.relative_to(DATA))
@@ -153,6 +153,18 @@ def import_world(job_path: Path, scene_id: str, title: str, references: list[str
             "job": str(job_path),
             "layers": records,
             "panorama": copy_asset(extracted / "image.png", scene_id),
+            "layer_sources": {
+                f"layer-{index}": copy_asset(extracted / filename, scene_id)
+                for index, filename in enumerate(
+                    [
+                        "image.png",
+                        "remove_fg1_image.png",
+                        "remove_fg2_image.png",
+                        "sky_image.png",
+                    ]
+                )
+                if (extracted / filename).exists()
+            },
             "orientation": "Official viewer rotateX(-pi/2), rotateZ(-pi/2)",
             "color": "Input sRGB vertex colors converted to linear for glTF",
         },

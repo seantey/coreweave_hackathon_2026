@@ -188,3 +188,63 @@ def test_new_hypothesis_can_follow_rejection(workspace, monkeypatch):
     scene = storage.read_scene("fixture")
     assert scene.revisions[-1].parent_id == "original"
     assert len(scene.revisions[-1].edits) == 1
+
+
+def test_inspection_tools_can_run_in_model_selected_order(workspace, monkeypatch):
+    original_capture = agent.capture
+    tool_calls = []
+
+    def inspect_capture(scene_id, revision, camera, region=None, isolated_asset=None):
+        result = original_capture(scene_id, revision, camera)
+        result["isolated_asset"] = isolated_asset
+        tool_calls.append((camera, region is not None, isolated_asset))
+        return result
+
+    choices = iter(
+        [
+            {"next_action": "isolate", "camera": "Front", "asset_id": "room"},
+            {
+                "next_action": "probe",
+                "camera": "Side",
+                "region": {"minimum": [0.2, 0.2], "maximum": [0.4, 0.4]},
+            },
+            {"next_action": "inspect", "camera": "Back"},
+            {"next_action": "stop", "reason": "Ambiguous geometry; retain evidence"},
+        ]
+    )
+    seen_views = []
+
+    def observe(scene_id, revision, views):
+        seen_views.append(list(views))
+        return {"assessment": next(choices)}
+
+    monkeypatch.setattr(agent, "capture", inspect_capture)
+    monkeypatch.setattr(agent, "observe_scene", observe)
+    result = agent.repair_loop("fixture", 1)
+    assert result["passes"][0]["reason"] == "Ambiguous geometry; retain evidence"
+    assert ("Front", False, "room") in tool_calls
+    assert ("Side", True, None) in tool_calls
+    assert any(v.get("isolated_asset") == "room" for v in seen_views[-1])
+    assert len(storage.read_scene("fixture").revisions) == 1
+
+
+def test_whole_asset_removal_requires_actual_isolation(workspace, monkeypatch):
+    monkeypatch.setattr(
+        agent,
+        "observe_scene",
+        lambda *args: {
+            "assessment": {
+                "next_action": "repair",
+                "edit": {
+                    "operation": "hide_asset",
+                    "asset_id": "room",
+                    "reason": "Detector label alone is insufficient",
+                    "evidence": ["Front"],
+                },
+            }
+        },
+    )
+    result = agent.repair_loop("fixture", 1)
+    assert result["passes"][0]["outcome"] == "invalid_proposal"
+    assert "isolated asset" in result["passes"][0]["reason"]
+    assert len(storage.read_scene("fixture").revisions) == 1

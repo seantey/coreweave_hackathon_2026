@@ -472,6 +472,27 @@ function pixelVariation() {
     colors.add((pixels[i] << 16) | (pixels[i + 1] << 8) | pixels[i + 2]);
   return colors.size;
 }
+async function isolateAsset(id: string | null) {
+  applyRevision(activeRevision.id);
+  if (id !== null && !loaded.some((entry) => entry.asset.id === id))
+    throw new Error("Unknown asset");
+  isolatedAsset = id;
+  if (id !== null) {
+    loaded.forEach((entry) => { entry.root.visible = entry.asset.id === id; });
+    repairs.visible = false;
+  }
+  document.querySelectorAll<HTMLButtonElement>("[data-isolate]").forEach((button) => {
+    const selected = button.dataset.isolate === id;
+    button.textContent = selected ? "Show room" : "Inspect";
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  $("notice").textContent = id === null
+    ? "Full scene restored. Inspection did not change the accepted revision."
+    : "Isolated object inspection. Use Show room to return to the full scene.";
+  await settle();
+  return metadata();
+}
+
 Object.assign(window, {
   cleanroom: {
     get ready() {
@@ -482,20 +503,7 @@ Object.assign(window, {
       await settle();
       return metadata();
     },
-    isolateAsset: async (id: string | null) => {
-      applyRevision(activeRevision.id);
-      if (id !== null && !loaded.some((entry) => entry.asset.id === id))
-        throw new Error("Unknown asset");
-      isolatedAsset = id;
-      if (id !== null) {
-        loaded.forEach((entry) => {
-          entry.root.visible = entry.asset.id === id;
-        });
-        repairs.visible = false;
-      } else repairs.visible = true;
-      await settle();
-      return metadata();
-    },
+    isolateAsset,
     metadata,
     pick,
     probeRegion,
@@ -550,9 +558,16 @@ function displayAssets() {
   $("assets").innerHTML = data.assets
     .map(
       (a) =>
-        `<div class="asset-row"><span class="asset-icon">◇</span><div><strong>${escape(a.label)}</strong><span>${escape(a.kind === "splat" ? "Gaussian splat" : a.kind === "mesh" ? "Mesh asset" : "Inferred surface")}</span></div><span class="asset-tag">${a.initially_visible === false ? "LIBRARY" : a.collider_path ? "COLLIDER" : "VISUAL"}</span></div>`,
+        `<div class="asset-row"><span class="asset-icon">◇</span><div><strong>${escape(a.label)}</strong><span>${escape(a.kind === "splat" ? "Gaussian splat" : a.kind === "mesh" ? "Mesh asset" : "Inferred surface")}</span></div><span class="asset-tag">${a.initially_visible === false ? "LIBRARY" : a.collider_path ? "COLLIDER" : "VISUAL"}</span><button class="quiet" data-isolate="${escape(a.id)}" aria-pressed="false">Inspect</button></div>`,
     )
     .join("");
+}
+function displayCameras() {
+  $("cameras").innerHTML = Object.keys(data.cameras)
+    .map((name) => `<button class="camera-button" data-camera="${escape(name)}">${escape(name)}</button>`).join("");
+  document.querySelectorAll<HTMLElement>("[data-camera]").forEach((button) => {
+    button.onclick = () => setCamera(button.dataset.camera!);
+  });
 }
 function displayRevisions() {
   $("revision-select").innerHTML = data.revisions
@@ -605,19 +620,7 @@ async function loadScene(id: string) {
     data.references.length + (data.video ? 1 : 0),
   );
   $("source-note").textContent = data.description;
-  $("cameras").innerHTML = Object.keys(data.cameras)
-    .map(
-      (c) =>
-        `<button class="camera-button" data-camera="${escape(c)}">${escape(c)}</button>`,
-    )
-    .join("");
-  document
-    .querySelectorAll("[data-camera]")
-    .forEach((b) =>
-      b.addEventListener("click", () =>
-        setCamera((b as HTMLElement).dataset.camera!),
-      ),
-    );
+  displayCameras();
   await Promise.all(data.assets.map(loadAsset));
   displayAssets();
   displayRevisions();
@@ -678,6 +681,10 @@ async function refreshEvents() {
     })
     .join("");
 }
+$("assets").onclick = (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-isolate]");
+  if (button) void safeAction(() => isolateAsset(isolatedAsset === button.dataset.isolate ? null : button.dataset.isolate!))();
+};
 $("refresh").onclick = safeAction(refreshEvents);
 $("scene-select").onchange = safeAction(() =>
   loadScene($<HTMLSelectElement>("scene-select").value),
@@ -689,6 +696,7 @@ $("current").onclick = () => applyRevision(data.current_revision);
 $("appearance").onchange = () =>
   loaded.forEach((e) => {
     if (e.splat) e.splat.visible = $<HTMLInputElement>("appearance").checked;
+    if (e.appearance) e.appearance.visible = $<HTMLInputElement>("appearance").checked;
   });
 $("colliders").onchange = () =>
   loaded.forEach((e) => {
@@ -716,7 +724,8 @@ $("capture").onclick = safeAction(async () => {
     reason: "Capture the operator's current inspection viewpoint",
   });
   data.cameras[saved.name] = saved.camera;
-  activeCamera = saved.name;
+  displayCameras();
+  setCamera(saved.name);
   const result = await api(`scenes/${data.id}/capture`, {
     camera: activeCamera,
     revision: activeRevision.id,
@@ -790,7 +799,7 @@ async function start() {
       "<p>No scene imported yet.<br>Use the import command to add a reconstruction.</p>";
     return;
   }
-  const id = query.get("scene") ?? scenes[0].id;
+  const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
   $<HTMLSelectElement>("scene-select").value = id;
   await loadScene(id);
 }

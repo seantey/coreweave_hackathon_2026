@@ -172,77 +172,106 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
             {"job_id": job_id, "pass": index + 1, "views": before, **observation},
         )
         choice = observation["assessment"]
-        if (
-            choice.get("next_action") == "probe"
-            and choice.get("camera") in scene.cameras
-        ):
-            region = ImageRegion.model_validate(choice.get("region"))
-            probed = capture(scene_id, scene.current_revision, choice["camera"], region)
-            before = [v for v in before if v["camera_name"] != choice["camera"]] + [
-                probed
-            ]
-            observation = observe_scene(scene_id, scene.current_revision, before)
-            event(
-                scene_id,
-                "geometry_observation",
-                {"job_id": job_id, "views": before, **observation},
+        inspection_views = []
+        inspected_assets = set()
+        tool_requests = set()
+        for tool_round in range(6):
+            action = choice.get("next_action")
+            if action not in ("probe", "inspect", "isolate", "navigate"):
+                break
+            request_signature = json.dumps(
+                {
+                    key: choice.get(key)
+                    for key in (
+                        "next_action",
+                        "camera",
+                        "asset_id",
+                        "region",
+                        "camera_pose",
+                    )
+                },
+                sort_keys=True,
             )
-            choice = observation["assessment"]
-        if (
-            choice.get("next_action") == "inspect"
-            and choice.get("camera") in scene.cameras
-        ):
-            name = choice["camera"]
-            if name not in selected:
-                before.append(capture(scene_id, scene.current_revision, name))
-                observation = observe_scene(scene_id, scene.current_revision, before)
+            if request_signature in tool_requests:
+                choice = {
+                    "next_action": "stop",
+                    "reason": "Repeated inspection request without new evidence",
+                }
+                break
+            tool_requests.add(request_signature)
+            try:
+                current = read_scene(scene_id)
+                if action == "navigate":
+                    pose = Camera.model_validate(choice.get("camera_pose"))
+                    if any(
+                        x < low or x > high
+                        for x, low, high in zip(
+                            pose.position,
+                            current.bounds.minimum,
+                            current.bounds.maximum,
+                        )
+                    ):
+                        raise ValueError(
+                            "Inspection camera lies outside the declared scene bounds"
+                        )
+                    name = save_camera(
+                        scene_id,
+                        pose,
+                        choice.get("reason") or "Inspect a new viewpoint",
+                    )
+                    view = capture(scene_id, scene.current_revision, name)
+                else:
+                    name = choice.get("camera")
+                    if name not in current.cameras:
+                        raise ValueError("Inspection requires an existing camera")
+                    if action == "isolate":
+                        asset_id = choice.get("asset_id")
+                        if not asset_id or not any(
+                            a.id == asset_id for a in current.assets
+                        ):
+                            raise ValueError("Isolation requires an existing asset")
+                        view = capture(
+                            scene_id,
+                            scene.current_revision,
+                            name,
+                            isolated_asset=asset_id,
+                        )
+                        inspection_views.append(view)
+                        inspected_assets.add(asset_id)
+                    elif action == "probe":
+                        region = ImageRegion.model_validate(choice.get("region"))
+                        view = capture(scene_id, scene.current_revision, name, region)
+                    else:
+                        view = capture(scene_id, scene.current_revision, name)
+                if action != "isolate":
+                    before = [v for v in before if v["camera_name"] != name] + [view]
+                observation = observe_scene(
+                    scene_id, scene.current_revision, before + inspection_views
+                )
                 event(
                     scene_id,
-                    "additional_observation",
-                    {"job_id": job_id, "views": before, **observation},
+                    action + "_observation",
+                    {
+                        "job_id": job_id,
+                        "pass": index + 1,
+                        "tool_round": tool_round + 1,
+                        "views": before + inspection_views,
+                        **observation,
+                    },
                 )
                 choice = observation["assessment"]
-        if (
-            choice.get("next_action") == "isolate"
-            and choice.get("camera") in scene.cameras
-        ):
-            isolated = capture(
-                scene_id,
-                scene.current_revision,
-                choice["camera"],
-                isolated_asset=choice.get("asset_id"),
-            )
-            observation = observe_scene(
-                scene_id, scene.current_revision, before + [isolated]
-            )
-            event(
-                scene_id,
-                "isolated_observation",
-                {"job_id": job_id, "views": before + [isolated], **observation},
-            )
-            choice = observation["assessment"]
-        if choice.get("next_action") == "navigate":
-            pose = Camera.model_validate(choice.get("camera_pose"))
-            if any(
-                x < low or x > high
-                for x, low, high in zip(
-                    pose.position, scene.bounds.minimum, scene.bounds.maximum
-                )
-            ):
-                raise ValueError(
-                    "Inspection camera lies outside the declared scene bounds"
-                )
-            name = save_camera(
-                scene_id, pose, choice.get("reason", "Inspect a new viewpoint")
-            )
-            before.append(capture(scene_id, scene.current_revision, name))
-            observation = observe_scene(scene_id, scene.current_revision, before)
-            event(
-                scene_id,
-                "navigated_observation",
-                {"job_id": job_id, "views": before, **observation},
-            )
-            choice = observation["assessment"]
+            except ValueError as error:
+                choice = {
+                    "next_action": "stop",
+                    "reason": "Invalid inspection request: " + str(error),
+                }
+                event(scene_id, "inspection_rejected", {"job_id": job_id, **choice})
+                break
+        if choice.get("next_action") in ("probe", "inspect", "isolate", "navigate"):
+            choice = {
+                "next_action": "stop",
+                "reason": "Inspection limit reached; evidence retained for the next run",
+            }
         if choice.get("next_action") != "repair" or not choice.get("edit"):
             history.append(
                 {
@@ -254,6 +283,10 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
             break
         try:
             edit = Edit.model_validate({**choice["edit"], "id": identifier("edit")})
+            if edit.operation == "hide_asset" and edit.asset_id not in inspected_assets:
+                raise ValueError(
+                    "Inspect the isolated asset before proposing its removal"
+                )
             signature = json.dumps(
                 edit.model_dump(exclude={"id", "reason", "evidence"}), sort_keys=True
             )

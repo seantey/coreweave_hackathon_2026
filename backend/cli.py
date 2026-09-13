@@ -129,6 +129,11 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("partition-layer")
+    p.add_argument("scene")
+    p.add_argument("asset")
+    p.add_argument("segmentation")
+    p.add_argument("panorama")
     p = commands.add_parser("import-hunyuan")
     p.add_argument("job")
     p.add_argument("--id", required=True)
@@ -232,7 +237,18 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "import-hunyuan":
+    if args.command == "partition-layer":
+        from .partition import partition_layer
+
+        print(
+            json.dumps(
+                partition_layer(
+                    args.scene, args.asset, Path(args.segmentation), Path(args.panorama)
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "import-hunyuan":
         from .hunyuan import import_world
 
         print(import_world(Path(args.job), args.id, args.title, args.reference).id)
