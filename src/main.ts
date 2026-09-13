@@ -978,7 +978,7 @@ async function start() {
       "<p>No scene imported yet.<br>Use the import command to add a reconstruction.</p>";
     return;
   }
-  const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office-clean")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office-textured")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
+  const id = query.get("scene") ?? scenes.find((scene: {id: string}) => scene.id === "office-rebuild")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office-clean")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office-textured")?.id ?? scenes.find((scene: {id: string}) => scene.id === "office")?.id ?? scenes[0].id;
   $<HTMLSelectElement>("scene-select").value = id;
   await loadScene(id);
   await refreshCompletion();

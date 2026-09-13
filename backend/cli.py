@@ -129,6 +129,15 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("planar-surface")
+    p.add_argument("scene")
+    p.add_argument("asset")
+    p.add_argument("--mask", required=True, help="Reviewed mask path relative to data directory")
+    p.add_argument("--camera-record", required=True, help="Matching capture metadata path relative to data directory")
+    p.add_argument("--reference-camera", required=True)
+    p.add_argument("--height", type=float, required=True, help="Target Y plane in unverified scene units")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--evidence", action="append", required=True)
     p = commands.add_parser("restore-room")
     p.add_argument("source")
     p.add_argument("--id", required=True)
@@ -254,7 +263,17 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "restore-room":
+    if args.command == "planar-surface":
+        from .surface_repair import propose_planar_surface
+        from . import agent
+        agent.initialize_tracing()
+        try:
+            print(json.dumps(propose_planar_surface(args.scene, args.asset, args.mask,
+                args.camera_record, args.reference_camera, args.height, args.reason, args.evidence), indent=2))
+        finally:
+            if agent.CLIENT:
+                agent.CLIENT.flush()
+    elif args.command == "restore-room":
         from .pipeline import run_pipeline
         print(json.dumps(run_pipeline(args.source, args.id, args.scene, args.reference, args.initial_candidate, args.max_edits, args.inspection_passes), indent=2))
     elif args.command == "reconstruct-completion":

@@ -169,6 +169,9 @@ def validate_edit(scene: Scene, edit: Edit):
         raise ValueError("Unknown target asset")
     if edit.operation != "add_surface" and assets[edit.asset_id].protected:
         raise ValueError("Target is protected")
+    if edit.operation in ("place_asset", "transform_asset") and assets[edit.asset_id].kind == "splat":
+        if max(edit.transform.scale) - min(edit.transform.scale) > 1e-6:
+            raise ValueError("Splat roots require uniform scale; bake deformation into both splat and collider first")
     if edit.operation == "place_asset" and assets[edit.asset_id].initially_visible:
         raise ValueError("place_asset requires an inactive library asset")
     if edit.operation == "hide_asset":

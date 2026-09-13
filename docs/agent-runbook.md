@@ -230,3 +230,8 @@ Expand scene hides the workspace panels. Pilot virtual probe enables drag-to-loo
 `window.cleanroom.probePath([dx,dy,dz])` moves from the current viewpoint and returns start/end, requested displacement, collision contact, scene/revision IDs and scale uncertainty. Calls are retained by `probeHistory()` and included in the workspace scene-record export. Keyboard movement is not stored frame by frame. The deployed W&B model loop does not yet request this new movement tool; it still uses the existing ray probes. Revision changes invalidate the collision index; overlay visibility does not disable collision checks.
 
 Validation: `node scripts/probe-navigation-check.mjs` (Node 22.18+ for direct TypeScript loading) covers synthetic thin walls, back faces, clear paths, changed geometry transforms and missing colliders. These geometry tests establish generic mechanics only. The prior browser test depended on the unrelated scene and has been removed; do not count it as office validation.
+
+
+## Current direct office repair
+
+The user requested that the assistant perform the loop itself. `office-rebuild` now contains accepted local table and foreground-chair repairs using only supplied-office derivatives. Read [the direct repair record](direct-office-repair.md) for rejected attempts, actual captures, geometry parameters, Weave traces and reuse limitations. It supersedes earlier statements that no 3D edit has been accepted, while preserving the distinction that the deployed GLM loop did not execute this new sequence.
