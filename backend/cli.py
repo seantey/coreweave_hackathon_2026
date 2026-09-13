@@ -129,6 +129,14 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("restore-room")
+    p.add_argument("source")
+    p.add_argument("--id", required=True)
+    p.add_argument("--scene", required=True)
+    p.add_argument("--reference", required=True)
+    p.add_argument("--initial-candidate")
+    p.add_argument("--max-edits", type=int, default=3)
+    p.add_argument("--inspection-passes", type=int, default=2)
     p = commands.add_parser("reconstruct-completion")
     p.add_argument("run_id")
     p.add_argument("--scene", required=True)
@@ -246,7 +254,10 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "reconstruct-completion":
+    if args.command == "restore-room":
+        from .pipeline import run_pipeline
+        print(json.dumps(run_pipeline(args.source, args.id, args.scene, args.reference, args.initial_candidate, args.max_edits, args.inspection_passes), indent=2))
+    elif args.command == "reconstruct-completion":
         from .completion import reconstruct_completion
         from . import agent
 

@@ -80,6 +80,15 @@ def completions():
     return records
 
 
+@app.get("/api/demo")
+def demo():
+    from .demo import demo_record
+    try:
+        return demo_record()
+    except FileNotFoundError:
+        raise HTTPException(404, "Prepare recorded demo evidence first")
+
+
 @app.get("/api/scenes/{scene_id}")
 def scene(scene_id: str):
     try:

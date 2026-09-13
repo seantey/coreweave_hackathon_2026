@@ -11,8 +11,9 @@ import shutil
 from pathlib import Path
 import httpx
 import weave
-from PIL import Image
+from PIL import Image, ImageFilter
 from pydantic import Field, StrictBool
+from typing import Literal
 from .models import StrictModel, ImageRegion
 from . import agent, providers, fal_jobs
 from .storage import DATA, write_json, media_path
@@ -128,10 +129,69 @@ def audit_completion_people(candidate: str, directory: str):
             str(path.relative_to(DATA))
             for path in sorted(segmentation_path.parent.glob("review-*.png"))
         ],
+        "reviewed_mask": (
+            str(
+                (segmentation_path.parent / "reviewed-person-mask.png").relative_to(
+                    DATA
+                )
+            )
+            if reviewed["selected_count"]
+            else None
+        ),
         "scope": "Independent detector plus crop review; detections are fallible and zero detections alone cannot prove absence",
     }
     write_json(output / "audit.json", result)
     return result
+
+
+class UncertaintyDecision(StrictModel):
+    index: int
+    category: Literal["resolved_visible", "unobserved_surface", "unresolved_visible"]
+    evidence: str = Field(min_length=5)
+
+
+class UncertaintyReview(StrictModel):
+    decisions: list[UncertaintyDecision]
+
+
+@weave.op()
+def review_visible_uncertainties(original: str, candidate: str, evaluation: dict):
+    questions = evaluation["assessment"]["uncertainties"]
+    prompt = f"""Resolve the scope of existing image-evaluation uncertainties against the unchanged goal: {GOAL}
+The first image is the source, the second is the candidate. Existing questions by index: {json.dumps(dict(enumerate(questions)))}.
+Person detector/crop audit: {json.dumps(evaluation.get('person_audit'))}.
+Additional images are ORIGINAL/CANDIDATE crop pairs across four vertical strips of the scene, preserving original pixels. Inspect actual details, not the earlier conclusion alone.
+For EACH index return category:
+- resolved_visible: supplied pixels concretely resolve the question; explain the observed evidence.
+- unobserved_surface: ONLY a question about the unknowable true appearance of a previously occluded surface, already acknowledged as inferred. This does not validate physical geometry.
+- unresolved_visible: a potentially visible person, missing furnishing, artifact, or preservation question remains unclear. Never classify such a question as unobserved_surface merely to pass.
+Zero person detections alone does not establish absence. Treat a prior verdict as fallible. Do not transcribe screen content.
+Return JSON {{"decisions":[{{"index":integer,"category":string,"evidence":string}}]}}. Uncertainty protocol uncertainty-scope-v1."""
+    images = read_images([original, candidate])
+    for column in range(4):
+        for path in (original, candidate):
+            with Image.open(path) as full:
+                w, h = full.size
+                crop = full.convert("RGB").crop(
+                    (int(column * w / 4), int(0.35 * h), int((column + 1) * w / 4), h)
+                )
+                crop.thumbnail((900, 900))
+                images.append(crop)
+    result = agent.vision_review(prompt, images)
+    reviewed = UncertaintyReview.model_validate(providers.structured(result["text"]))
+    if sorted(d.index for d in reviewed.decisions) != list(range(len(questions))):
+        raise ValueError(
+            "Uncertainty review must address each original question exactly once"
+        )
+    return {
+        "protocol": "uncertainty-scope-v1",
+        "prompt": prompt,
+        **result,
+        "decisions": [d.model_dump() for d in reviewed.decisions],
+        "visible_questions_resolved": all(
+            d.category != "unresolved_visible" for d in reviewed.decisions
+        ),
+    }
 
 
 @weave.op()
@@ -184,6 +244,7 @@ def edit_completion(
     instruction: str,
     directory: str,
     crop_region: dict | None = None,
+    edit_mask: str | None = None,
 ):
     output = Path(directory)
     output.mkdir(parents=True, exist_ok=True)
@@ -260,6 +321,13 @@ def edit_completion(
             distance = np.minimum.reduce([xx, yy, size[0] - 1 - xx, size[1] - 1 - yy])
             feather = max(2, min(size) // 12)
             alpha = Image.fromarray(np.uint8(np.clip(distance / feather, 0, 1) * 255))
+            if edit_mask:
+                with Image.open(media_path(edit_mask)) as selected:
+                    if selected.size != full.size:
+                        raise ValueError("Edit mask must match the candidate image")
+                    selected = selected.convert("L").filter(ImageFilter.MaxFilter(13)).filter(ImageFilter.GaussianBlur(2))
+                    mask_crop = np.asarray(selected.crop(crop_box), dtype=float) / 255
+                alpha = Image.fromarray(np.uint8(np.asarray(alpha, dtype=float) * mask_crop))
             full.paste(patch, crop_box[:2], alpha)
             path = output / "candidate.png"
             full.save(path)
@@ -270,6 +338,7 @@ def edit_completion(
                 "crop_region": crop_region,
                 "feather_pixels": feather,
                 "outside_pixels": "unchanged",
+                "edit_mask": edit_mask,
             },
         )
     with Image.open(original) as source, Image.open(path) as edited:
@@ -343,6 +412,34 @@ def completion_loop(
             combined_path = step / "evaluation-with-person-audit.json"
             write_json(combined_path, evaluation)
             evaluation_path = combined_path
+            assessment = Assessment.model_validate(evaluation["assessment"])
+            if (
+                not evaluation["accepted"]
+                and person_audit["people_count"] == 0
+                and person_audit["uncertain_count"] == 0
+                and assessment.people_absent is True
+                and assessment.furniture_preserved is True
+                and assessment.layout_preserved is True
+                and assessment.new_visible_damage is False
+                and not assessment.remaining_issues
+                and assessment.uncertainties
+            ):
+                scope_path = step / "uncertainty-review.json"
+                if scope_path.exists():
+                    scope_review = json.loads(scope_path.read_text())
+                else:
+                    scope_review = review_visible_uncertainties(
+                        str(original), str(candidate), evaluation
+                    )
+                    write_json(scope_path, scope_review)
+                evaluation["uncertainty_review"] = scope_review
+                evaluation["accepted"] = (
+                    scope_review["visible_questions_resolved"] is True
+                )
+                evaluation["acceptance_scope"] = (
+                    "Visible input consistency only; newly exposed real surfaces remain inferred"
+                )
+                write_json(combined_path, evaluation)
         history.append(
             {
                 "candidate": str(candidate.relative_to(DATA)),
@@ -379,7 +476,12 @@ def completion_loop(
             planned["plan"]["edit_prompt"],
             str(step / "edit"),
             **(
-                {"crop_region": planned["plan"]["crop_region"]}
+                {
+                    "crop_region": planned["plan"]["crop_region"],
+                    "edit_mask": (
+                        person_audit.get("reviewed_mask") if person_audit else None
+                    ),
+                }
                 if planned["plan"].get("crop_region")
                 else {}
             ),

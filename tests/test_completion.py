@@ -88,7 +88,7 @@ def test_localized_person_evidence_blocks_broad_absence_verdict(tmp_path, monkey
     monkeypatch.setattr(
         completion,
         "evaluate_completion",
-        lambda *args: {"accepted": True, "assessment": {"people_absent": True}},
+        lambda *args: {"accepted": True, "assessment": {"people_absent": True, "furniture_preserved": True, "layout_preserved": True, "new_visible_damage": False, "evidence": "Broad review missed an occupant", "remaining_issues": [], "uncertainties": []}},
     )
     monkeypatch.setattr(
         completion,
@@ -130,3 +130,41 @@ def test_regional_edit_preserves_every_pixel_outside_crop(tmp_path, monkeypatch)
     outside[10:40, 30:70] = False
     assert np.array_equal(original[outside], edited[outside])
     assert not np.array_equal(original[25, 50], edited[25, 50])
+
+
+def test_masked_edit_preserves_unselected_pixels_inside_crop(tmp_path, monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(completion, 'media_path', lambda path: tmp_path / path)
+    source = tmp_path / 'source.png'
+    Image.new('RGB', (200, 100), 'red').save(source)
+    mask = Image.new('L', (200, 100), 0)
+    mask.paste(255, (95, 45, 105, 55))
+    mask.save(tmp_path / 'mask.png')
+    output = tmp_path / 'edit'
+    output.mkdir()
+    (output / 'job.json').write_text('{}')
+    Image.new('RGB', (200, 100), 'blue').save(output / 'edited-crop.png')
+    monkeypatch.setattr(completion.fal_jobs, 'resume', lambda *args, **kwargs: {})
+    result = completion.edit_completion(str(source), str(source), 'Remove the person', str(output),
+                                        {'minimum': [.1, .1], 'maximum': [.9, .9]}, 'mask.png')
+    edited = np.array(Image.open(result['candidate']))
+    assert (edited[50, 100] == [0, 0, 255]).all()
+    assert (edited[25, 40] == [255, 0, 0]).all()
+    assert (edited[:10] == [255, 0, 0]).all()
+
+
+def test_uncertainty_review_requires_every_question_and_keeps_visible_ambiguity(monkeypatch):
+    import json
+    import pytest
+    monkeypatch.setattr(completion, 'read_images', lambda paths: [])
+    monkeypatch.setattr(completion.Image, 'open', lambda path: Image.new('RGB', (40, 20)))
+    responses = iter([
+        {'decisions': [{'index': 0, 'category': 'unobserved_surface', 'evidence': 'Surface was occluded'}]},
+        {'decisions': [{'index': 0, 'category': 'unobserved_surface', 'evidence': 'Surface was occluded'},
+                       {'index': 1, 'category': 'unresolved_visible', 'evidence': 'Possible head remains visible'}]},
+    ])
+    monkeypatch.setattr(completion.agent, 'vision_review', lambda *args: {'text': json.dumps(next(responses))})
+    evaluation = {'assessment': {'uncertainties': ['Hidden surface', 'Possible person']}}
+    with pytest.raises(ValueError, match='each original question'):
+        completion.review_visible_uncertainties('source', 'candidate', evaluation)
+    assert completion.review_visible_uncertainties('source', 'candidate', evaluation)['visible_questions_resolved'] is False

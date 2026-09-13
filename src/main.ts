@@ -108,7 +108,7 @@ async function api(path: string, body?: unknown) {
 }
 
 document.querySelector("#app")!.innerHTML = `
-<header><a class="brand" href="/"><span class="mark">cr<span>i</span></span><span>Clean Room<br><strong>Imputation</strong></span></a><div class="project-picker"><span class="eyebrow">WORKSPACE</span><select id="scene-select" aria-label="Scene"></select></div><div class="header-status"><span class="status-dot"></span><span id="connection">Connecting</span></div><button id="export" class="quiet">Export scene record ↗</button></header>
+<header><a class="brand" href="/"><span class="mark">cr<span>i</span></span><span>Clean Room<br><strong>Imputation</strong></span></a><div class="project-picker"><span class="eyebrow">WORKSPACE</span><select id="scene-select" aria-label="Scene"></select></div><div class="header-status"><span class="status-dot"></span><span id="connection">Connecting</span></div><a class="quiet" href="/demo.html">Recorded demo ↗</a><button id="export" class="quiet">Export scene record ↗</button></header>
 <main><aside class="left-panel"><div class="eyebrow">THE ORIGINAL, RECONSIDERED</div><h1>Same room.<br><span>No one there.</span></h1><p class="intro">Restore what belongs. Reconstruct what was hidden.</p><section><div class="section-heading"><h2>Source evidence</h2><span id="source-count"></span></div><div id="references"></div><p id="source-note" class="small"></p></section><section><div class="section-heading"><h2>Scene objects</h2><span id="object-count"></span></div><div id="assets"></div></section><section class="goal-card"><span class="eyebrow">PRESERVATION FIRST</span><p id="goal"></p></section></aside>
 <section class="stage"><div class="stage-heading"><div><span class="eyebrow" id="scene-type">RECONSTRUCTION</span><h2 id="scene-title">Loading workspace…</h2></div><span class="pill" id="revision-label">Original</span></div><div id="viewport"><div id="loading"><span class="spinner"></span><p>Opening the scene</p></div><div class="viewport-caption"><span id="camera-label">Inspection view</span><span>Drag to orbit · Scroll to explore</span></div><div id="scene-warning"></div></div><div class="toolbar"><div id="cameras"></div><div class="toggles"><label><input type="checkbox" id="appearance" checked> Appearance</label><label><input type="checkbox" id="colliders"> Collision</label><label><input type="checkbox" id="grid"> Grid</label><button id="capture" class="quiet">Capture view</button></div></div><div class="revision-bar"><div><span class="eyebrow">SCENE HISTORY</span><select id="revision-select" aria-label="Scene revision"></select></div><button id="original" class="quiet">View original</button><button id="current" class="quiet">View accepted</button></div><div id="notice" role="status">Source imagery is evidence. Reconstructed hidden surfaces remain inferred.</div></section>
 <aside class="right-panel"><div class="section-heading"><h2>Restoration loop</h2><span class="pill" id="loop-state">Ready</span></div><p class="small">Inspect → propose → compare → retain or undo.</p><button id="run-loop" class="primary">Start inspection loop <span>↗</span></button><div class="run-options"><label>Maximum passes <select id="passes"><option>1</option><option selected>2</option><option>3</option></select></label><span>Uses inference credits</span></div><div class="evidence-heading"><span class="eyebrow">DECISIONS & EVIDENCE</span><button id="refresh" class="quiet">↻</button></div><div id="events" aria-live="polite"><div class="empty-state">Every change needs a reason.<br><span>Inspection evidence will appear here.</span></div></div><section id="completion-evidence"></section><details class="tools"><summary>Agent tool console</summary><p class="small">Create a reversible candidate. It is not accepted automatically.</p><textarea id="edit-json" aria-label="Edit JSON" spellcheck="false"></textarea><button id="propose" class="quiet">Preview candidate</button><button id="accept" class="quiet">Accept candidate</button><button id="reject" class="quiet">Reject candidate</button></details></aside></main>`;
@@ -290,6 +290,10 @@ function applyRevision(id: string) {
   if (!revision) throw new Error("Unknown revision");
   activeRevision = revision;
   isolatedAsset = null;
+  document.querySelectorAll<HTMLButtonElement>("[data-isolate]").forEach((button) => {
+    button.textContent = "Inspect";
+    button.setAttribute("aria-pressed", "false");
+  });
   repairs.visible = true;
   for (const child of [...repairs.children]) {
     repairs.remove(child);
@@ -511,6 +515,7 @@ function focusAsset(id: string) {
   return metadata();
 }
 let previousInspectionPose: Camera | null = null;
+let previousInspectionCamera = "";
 async function inspectObject(id: string) {
   if (isolatedAsset === id) {
     await isolateAsset(null);
@@ -520,10 +525,15 @@ async function inspectObject(id: string) {
       camera.fov = previousInspectionPose.fov;
       camera.updateProjectionMatrix();
       controls.update();
+      activeCamera = previousInspectionCamera;
+      $("camera-label").textContent = activeCamera;
     }
     previousInspectionPose = null;
   } else {
-    if (!previousInspectionPose) previousInspectionPose = {position: camera.position.toArray() as Vector, target: controls.target.toArray() as Vector, fov: camera.fov};
+    if (!previousInspectionPose) {
+      previousInspectionCamera = activeCamera;
+      previousInspectionPose = {position: camera.position.toArray() as Vector, target: controls.target.toArray() as Vector, fov: camera.fov};
+    }
     await isolateAsset(id);
     focusAsset(id);
   }
@@ -618,6 +628,7 @@ function displayRevisions() {
 async function loadScene(id: string) {
   ready = false;
   rendering = true;
+  previousInspectionPose = null;
   $("loading").style.display = "flex";
   for (const e of loaded) {
     world.remove(e.root);

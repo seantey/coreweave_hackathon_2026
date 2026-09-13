@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 export default defineConfig({
+  build: { rollupOptions: { input: { workspace: 'index.html', demo: 'demo.html' } } },
   server: {
     port: 5173,
     strictPort: true,
