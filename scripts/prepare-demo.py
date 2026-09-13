@@ -61,6 +61,7 @@ def prepare():
          'description': 'The next review questioned furniture preservation. The loop requested another correction and checked the candidate again before starting reconstruction.',
          'before': f'completion/{run}/initial.png', 'after': summary['candidate'], 'before_label': 'Before preservation pass', 'after_label': 'Approved 2D input',
          'evidence': final['assessment']['evidence'],
+         'trace': trace + '01a09bd0-d315-7801-9562-d8473b8055f5',
          'scope': 'These are fallible model judgments. Original uncertainties and follow-up decisions remain in the saved evaluations; unseen physical surfaces cannot be recovered as ground truth.'},
     ]
     events = [json.loads(line) for line in (DATA / 'scenes' / 'office-textured' / 'events.jsonl').read_text().splitlines()]
@@ -75,6 +76,20 @@ def prepare():
         'evidence': 'The target person remains. Measured image changes: Forward 0.138%, Right 0%, Back 0%. The evaluator’s “identical” description was imprecise; the edit still failed its people-removal goal.',
         'trace': trace + '01a09bc9-ae33-7174-b470-54bb0526afbd',
         'scope': 'Earlier occupied-room experiment, shown separately from the source-image correction branch. No accepted autonomous 3D repair is claimed.'})
+    rendered = directory / 'restored-views.json'
+    if rendered.exists():
+        views = json.loads(rendered.read_text())
+        forward = next(view for view in views if view['camera_name'] == 'Forward')
+        if forward['scene_id'] != 'office-clean':
+            raise ValueError('Restored-room chapter must use the clean-input reconstruction')
+        chapters.append({
+            'label': 'Explore', 'title': 'The corrected input becomes a room.',
+            'description': 'The reconstruction can now be explored in 3D, with automatically separated chair parts and per-object collision geometry. Inspect the result rather than trusting the source-image verdict.',
+            'before': rejected['before'][0]['image'], 'after': forward['image'],
+            'before_label': 'Occupied reconstruction', 'after_label': 'Clean-input reconstruction',
+            'evidence': 'Four rendered directions were inspected. Prominent occupants are gone. Seven chair-mask parts retain every original triangle; four have substantial geometry and three are small fragments. The 3D agent resolved a suspected remnant as furniture and stopped, preserving it while reporting remaining defects.',
+            'trace': trace + '01a09bd0-d315-7801-9562-d8473b8055f5',
+            'scope': 'Two separate Hunyuan generations at the same normalized viewing direction, not a calibrated physical reconstruction. Remaining geometry defects are not claimed repaired.'})
     write_json(directory / 'manifest.json', {'chapters': chapters, 'completion_run': run, 'restored_scene': 'office-clean', 'occupied_scene': 'office-textured'})
     print('Prepared recorded demo: http://127.0.0.1:5173/demo.html')
 

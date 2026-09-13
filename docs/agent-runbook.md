@@ -206,3 +206,12 @@ uv run python -m backend.cli restore-room /path/to/occupied-panorama.png \
 `--initial-candidate` is optional. It executes source review/correction, approved-input world generation and import, chair detection/partition where supported, then the 3D inspection loop. Provider jobs are checkpointed; if a wait times out, rerun the same command and identifiers to resume without resubmitting. Do not start a second copy while the existing process is still running. Source-image and segmentation checkpoints replay; the 3D loop itself can start another bounded inspection on a rerun.
 
 The `/demo.html` presentation, 69-second silent MP4, and private snapshot are prepared. See [demo.md](demo.md) for a three-minute walkthrough, evidence boundaries and reproduction commands. The package contains the occupied scene until the clean scene is verified and repackaged. All 41 Python tests and the five-chapter browser check pass; production build passes. Latest local commits: `e85d01a` and `b1fadec`.
+
+
+## Completed pipeline — September 13, 11:12 AM PDT
+
+The 10:49 AM generation-pending status is superseded. `office-panorama-masked/pipeline.json` is `built_and_inspected`; the original process completed normally and did not require a timeout resume. Its Weave root is [01a09bd0-d315-7801-9562-d8473b8055f5](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09bd0-d315-7801-9562-d8473b8055f5).
+
+`office-clean` is imported and rendered, with seven chair-mask parts (four substantial candidates, three tiny fragments). Source video is attached separately as an unregistered viewpoint. All 149,999 chair-layer triangles were retained and the Forward partition comparison was pixel-identical. The final inspection `loop-c8882b7921e6` used probes, isolation and a new camera; it resolved the dark suspected person remnant as furniture and stopped without editing. Warped surfaces and missing chair geometry remain. No accepted autonomous 3D repair is claimed.
+
+The demo now has six chapters, a roughly 78-second recording of the clean-input scene, and a private package. See `docs/demo.md`. Future regional edits receive the matching original-reference crop as a second image; previous recorded crop jobs used only their candidate crop and remain unchanged. Small mesh partitions under 1,000 triangles are labeled fragments, a display heuristic rather than a completeness test.

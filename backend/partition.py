@@ -138,9 +138,9 @@ def partition_layer(
             asset.label = (
                 target.label + " remainder"
                 if index < 0
-                else f"{record['prompt'].capitalize()} candidate {index + 1}"
+                else f"{record['prompt'].capitalize()} {'fragment' if len(faces) < 1000 else 'candidate'} {index + 1}"
             )
-            asset.provenance += " Partitioned by panorama mask; hidden surfaces and semantic purity remain unverified."
+            asset.provenance += f" Partitioned by panorama mask: {len(faces)} triangles; hidden surfaces and semantic purity remain unverified."
             replacements.append(asset)
             counts.append(
                 {

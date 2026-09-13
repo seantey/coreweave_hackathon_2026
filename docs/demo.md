@@ -6,7 +6,7 @@ September 13, 2026. This is a presentation of recorded experiments, not a claim 
 
 With the backend on port 8000 and Vite on port 5173, open **http://127.0.0.1:5173/demo.html**. The workspace remains at **http://127.0.0.1:5173/**. The production build includes both pages.
 
-The five chapters show the occupied/corrected panorama, the missed distant person, its targeted correction, the subsequent preservation review, and an earlier rejected 3D edit. Use the comparison slider, chapter buttons, or arrow keys. “Play recorded sequence” advances saved evidence; it does not simulate live tool calls or spend credits. Trace links require access to the private W&B project.
+The six chapters show the occupied/corrected panorama, the missed distant person, its targeted correction, the subsequent preservation review, an earlier rejected 3D edit, and the completed clean-input reconstruction. Use the comparison slider, chapter buttons, or arrow keys. “Play recorded sequence” advances saved evidence; it does not simulate live tool calls or spend credits. Trace links require access to the private W&B project.
 
 For a single local server, run `npm run build` before starting the backend. FastAPI serves the built workspace and `/demo.html` directly at port 8000. Set `CLEANROOM_VIEWER_URL=http://127.0.0.1:8000` when running capture/agent commands without Vite. Restart the backend if it started before the first build existed.
 
@@ -46,7 +46,7 @@ The recorder creates `.artifacts/clean-room-imputation-demo.mp4`, a silent recor
 
 ## Verification at this checkpoint
 
-41 Python tests pass, including counter-evidence blocking acceptance, exact outside-crop preservation, mask restriction inside the crop, exhaustive uncertainty review, and rejection before world generation. The five-chapter browser check passes without page errors, verifies loaded evidence images and slider behavior, and checks an 800px layout. Production build passes; the existing Spark workspace bundle remains large. These checks establish implementation behavior, not scene reconstruction accuracy.
+42 Python tests pass, including counter-evidence blocking acceptance, exact outside-crop preservation, mask restriction inside the crop, exhaustive uncertainty review, and rejection before world generation. The six-chapter browser check passes without page errors, verifies loaded evidence images and slider behavior, and checks an 800px layout. Production build passes; the existing Spark workspace bundle remains large. These checks establish implementation behavior, not scene reconstruction accuracy.
 
 ## Portable private snapshot
 
@@ -59,3 +59,14 @@ This packages the chapter images, available office scenes, geometry, references,
 ## Concise project description draft
 
 Clean Room Imputation explores turning an occupied office into the same virtual room without its occupants. W&B-powered agents inspect imagery, challenge broad judgments with localized evidence, request targeted corrections, and recheck preservation; a separate 3D loop compares matching camera views and rejects ineffective scene edits. The prototype demonstrates recorded image correction, partial furniture separation, and rejected 3D repair, with generated hidden geometry explicitly treated as inferred.
+
+
+## Completed run — September 13, 11:12 AM PDT
+
+`office-panorama-masked/pipeline.json` reports `built_and_inspected`. [The actual end-to-end Weave trace](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09bd0-d315-7801-9562-d8473b8055f5) includes source evaluation/correction, Hunyuan reconstruction, segmentation/partition and 3D inspection. The final 3D loop `loop-c8882b7921e6` used collider probes, layer isolation and a new camera. It resolved a suspected person remnant as a furniture fragment and stopped without an edit, preserving visible furniture and reporting unresolved geometric defects.
+
+The new scene is `office-clean`; the earlier occupied comparison is `office-textured`. The new chair layer has 149,999 triangles. Its seven mask-assigned parts include four substantial candidates and three fragments of 51, 1 and 319 triangles; those fragments are labeled explicitly. All triangles remain, and the matched Forward screenshot before/after partition is pixel-identical. These checks do not imply complete chair recovery.
+
+The video now shows the actual clean-input scene. The original source video is attached as an unregistered additional viewpoint. Four captured room directions were inspected directly; prominent occupants are absent, but warped geometry, incomplete chair surfaces and duplicated-looking monitor geometry remain. This is a demonstrable restoration prototype, not a finished simulation-ready digital twin.
+
+A later tool correction supplies both candidate and original-reference crops to future regional image edits. Earlier recorded crop jobs supplied only the candidate crop; their artifacts and outcomes are preserved rather than reinterpreted as having received a second input.
