@@ -20,6 +20,7 @@ type Asset = {
   path: string | null;
   remote_url?: string | null;
   paged?: boolean;
+  unlit?: boolean;
   collider_path: string | null;
   collider_matrix?: number[] | null;
   transform: Transform;
@@ -67,6 +68,7 @@ type Loaded = {
   root: THREE.Group;
   splat?: SplatMesh;
   collider?: THREE.Object3D;
+  appearance?: THREE.Object3D;
   originalIndices: Map<
     THREE.BufferGeometry,
     THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null
@@ -140,6 +142,7 @@ world.add(repairs);
 let data: SceneData;
 let activeRevision: Revision;
 let activeCamera = "";
+let isolatedAsset: string | null = null;
 let ready = false;
 let rendering = false;
 
@@ -208,6 +211,36 @@ async function loadAsset(asset: Asset) {
   }
   if (asset.kind === "mesh" && asset.path) {
     const gltf = await new GLTFLoader().loadAsync(media(asset.path));
+    if (asset.unlit)
+      gltf.scene.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const original = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        const replacements = original.map(
+          (material: THREE.MeshStandardMaterial) => {
+            const replacement = new THREE.MeshBasicMaterial({
+              color: material.color,
+              map: material.map,
+              vertexColors: material.vertexColors,
+              side: THREE.DoubleSide,
+            });
+            material.dispose();
+            return replacement;
+          },
+        );
+        child.material = Array.isArray(child.material)
+          ? replacements
+          : replacements[0];
+      });
+    value.appearance = gltf.scene;
+    gltf.scene.traverse((child) => {
+      if (child instanceof THREE.Mesh)
+        value.originalIndices.set(
+          child.geometry,
+          child.geometry.index?.clone() ?? null,
+        );
+    });
     root.add(gltf.scene);
   }
   if (asset.kind === "box") {
@@ -239,6 +272,7 @@ async function loadAsset(asset: Asset) {
         child.material = new THREE.MeshBasicMaterial({
           color: 0xc3f285,
           wireframe: true,
+          side: THREE.DoubleSide,
           transparent: true,
           opacity: 0.035,
           depthWrite: false,
@@ -255,6 +289,8 @@ function applyRevision(id: string) {
   const revision = data.revisions.find((r) => r.id === id);
   if (!revision) throw new Error("Unknown revision");
   activeRevision = revision;
+  isolatedAsset = null;
+  repairs.visible = true;
   for (const child of [...repairs.children]) {
     repairs.remove(child);
     disposeObject(child);
@@ -268,6 +304,7 @@ function applyRevision(id: string) {
   }
   for (const edit of revision.edits) {
     const entry = loaded.find((a) => a.asset.id === edit.asset_id);
+    if (edit.operation === "hide_asset" && entry) entry.root.visible = false;
     if (
       (edit.operation === "transform_asset" ||
         edit.operation === "place_asset") &&
@@ -291,36 +328,42 @@ function applyRevision(id: string) {
   for (const edit of revision.edits) {
     if (edit.operation !== "hide_region" || !edit.bounds) continue;
     const entry = loaded.find((a) => a.asset.id === edit.asset_id);
-    if (!entry?.splat) continue;
+    if (!entry) continue;
     const bounds = new THREE.Box3(
       new THREE.Vector3().fromArray(edit.bounds.minimum),
       new THREE.Vector3().fromArray(edit.bounds.maximum),
     );
-    const removal = new SplatEdit({ name: edit.reason, softEdge: 0 });
-    const shape = new SplatEditSdf({ type: SplatEditSdfType.BOX, opacity: 0 });
-    bounds.getCenter(shape.position);
-    bounds.getSize(shape.scale).multiplyScalar(0.5);
-    removal.add(shape);
-    removal.sdfs = [shape];
-    removal.updateMatrixWorld(true);
-    entry.splat.edits = [...(entry.splat.edits ?? []), removal];
-    // Delete collider triangles intersecting the region conservatively; this is an approximate local edit.
-    entry.collider?.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      const g = child.geometry,
-        p = g.getAttribute("position"),
-        idx = g.index,
-        kept: number[] = [];
-      const tri = new THREE.Triangle();
-      for (let i = 0; i < (idx?.count ?? p.count); i += 3) {
-        const ids = [0, 1, 2].map((k) => (idx ? idx.getX(i + k) : i + k));
-        [tri.a, tri.b, tri.c].forEach((v, k) =>
-          v.fromBufferAttribute(p, ids[k]).applyMatrix4(child.matrixWorld),
-        );
-        if (!bounds.intersectsTriangle(tri)) kept.push(...ids);
-      }
-      g.setIndex(kept);
-    });
+    if (entry.splat) {
+      const removal = new SplatEdit({ name: edit.reason, softEdge: 0 });
+      const shape = new SplatEditSdf({
+        type: SplatEditSdfType.BOX,
+        opacity: 0,
+      });
+      bounds.getCenter(shape.position);
+      bounds.getSize(shape.scale).multiplyScalar(0.5);
+      removal.add(shape);
+      removal.sdfs = [shape];
+      removal.updateMatrixWorld(true);
+      entry.splat.edits = [...(entry.splat.edits ?? []), removal];
+    }
+    // Apply the same conservative triangle removal to appearance and collider geometry.
+    for (const root of [entry.appearance, entry.collider])
+      root?.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const g = child.geometry,
+          p = g.getAttribute("position"),
+          idx = g.index,
+          kept: number[] = [];
+        const tri = new THREE.Triangle();
+        for (let i = 0; i < (idx?.count ?? p.count); i += 3) {
+          const ids = [0, 1, 2].map((k) => (idx ? idx.getX(i + k) : i + k));
+          [tri.a, tri.b, tri.c].forEach((v, k) =>
+            v.fromBufferAttribute(p, ids[k]).applyMatrix4(child.matrixWorld),
+          );
+          if (!bounds.intersectsTriangle(tri)) kept.push(...ids);
+        }
+        g.setIndex(kept);
+      });
   }
   $("revision-label").textContent =
     revision.status === "baseline" ? "Original" : revision.status;
@@ -335,6 +378,7 @@ function metadata() {
     scene_id: data.id,
     revision_id: activeRevision.id,
     camera_name: activeCamera,
+    isolated_asset: isolatedAsset,
     position: camera.position.toArray(),
     target: controls.target.toArray(),
     fov: camera.fov,
@@ -438,6 +482,20 @@ Object.assign(window, {
       await settle();
       return metadata();
     },
+    isolateAsset: async (id: string | null) => {
+      applyRevision(activeRevision.id);
+      if (id !== null && !loaded.some((entry) => entry.asset.id === id))
+        throw new Error("Unknown asset");
+      isolatedAsset = id;
+      if (id !== null) {
+        loaded.forEach((entry) => {
+          entry.root.visible = entry.asset.id === id;
+        });
+        repairs.visible = false;
+      } else repairs.visible = true;
+      await settle();
+      return metadata();
+    },
     metadata,
     pick,
     probeRegion,
@@ -447,14 +505,42 @@ Object.assign(window, {
     diagnostics: () =>
       loaded.map((e) => ({
         id: e.asset.id,
+        meshes: e.root.children.map((child) => {
+          const meshes: any[] = [];
+          child.traverse((object) => {
+            if (object instanceof THREE.Mesh)
+              meshes.push({
+                vertices: object.geometry.getAttribute("position")?.count,
+                material: (Array.isArray(object.material)
+                  ? object.material
+                  : [object.material]
+                ).map((m: any) => ({
+                  type: m.type,
+                  color: m.color?.toArray(),
+                  vertexColors: m.vertexColors,
+                  opacity: m.opacity,
+                  side: m.side,
+                })),
+                colors: object.geometry
+                  .getAttribute("color")
+                  ?.array.slice(0, 12),
+              });
+          });
+          return { visible: child.visible, meshes };
+        }),
         splats: e.splat?.numSplats,
         bounds: e.splat?.getBoundingBox(),
         matrix: e.splat?.matrixWorld.toArray(),
-        colliderTriangles: [...e.originalIndices.keys()].reduce(
-          (count, g) =>
-            count + (g.index?.count ?? g.getAttribute("position").count) / 3,
-          0,
-        ),
+        colliderTriangles: (() => {
+          let count = 0;
+          e.collider?.traverse((child) => {
+            if (child instanceof THREE.Mesh)
+              count +=
+                (child.geometry.index?.count ??
+                  child.geometry.getAttribute("position").count) / 3;
+          });
+          return count;
+        })(),
       })),
   },
 });
@@ -472,7 +558,7 @@ function displayRevisions() {
   $("revision-select").innerHTML = data.revisions
     .map(
       (r) =>
-        `<option value="${escape(r.id)}">${escape(r.status === "baseline" ? "Original capture" : r.label.slice(0, 55))} · ${escape(r.status)}</option>`,
+        `<option value="${escape(r.id)}">${escape(r.status === "baseline" ? "Initial reconstruction" : r.label.slice(0, 55))} · ${escape(r.status)}</option>`,
     )
     .join("");
 }
@@ -487,6 +573,7 @@ async function loadScene(id: string) {
   }
   loaded.length = 0;
   data = await api("scenes/" + id);
+  spark.visible = data.assets.some((asset) => asset.kind === "splat");
   $("scene-title").textContent = data.title;
   $("goal").textContent = data.goal;
   renderer.setClearColor(
@@ -622,7 +709,14 @@ $("export").onclick = () => {
   URL.revokeObjectURL(url);
 };
 $("capture").onclick = safeAction(async () => {
-  $("notice").textContent = "Capturing the selected saved camera…";
+  $("notice").textContent = "Saving and capturing this viewpoint…";
+  const pose = metadata();
+  const saved = await api(`scenes/${data.id}/cameras`, {
+    camera: { position: pose.position, target: pose.target, fov: pose.fov },
+    reason: "Capture the operator's current inspection viewpoint",
+  });
+  data.cameras[saved.name] = saved.camera;
+  activeCamera = saved.name;
   const result = await api(`scenes/${data.id}/capture`, {
     camera: activeCamera,
     revision: activeRevision.id,

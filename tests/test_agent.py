@@ -107,7 +107,9 @@ def test_loop_decisions_and_held_out_camera(
 
 def test_malformed_evaluator_cannot_accept_candidate(workspace, monkeypatch):
     monkeypatch.setattr(
-        agent.providers, "vision", lambda *args, **kwargs: model_result(defect_resolved="true")
+        agent.providers,
+        "vision",
+        lambda *args, **kwargs: model_result(defect_resolved="true"),
     )
     with pytest.raises(ValueError):
         agent.repair_loop("fixture", 1)
@@ -178,7 +180,9 @@ def test_new_hypothesis_can_follow_rejection(workspace, monkeypatch):
 
     results = iter([model_result(new_visible_damage=True), model_result()])
     monkeypatch.setattr(agent, "observe_scene", revised_hypothesis)
-    monkeypatch.setattr(agent.providers, "vision", lambda *args, **kwargs: next(results))
+    monkeypatch.setattr(
+        agent.providers, "vision", lambda *args, **kwargs: next(results)
+    )
     result = agent.repair_loop("fixture", 2)
     assert [step["outcome"] for step in result["passes"]] == ["rejected", "accepted"]
     scene = storage.read_scene("fixture")

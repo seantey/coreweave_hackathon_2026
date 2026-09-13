@@ -6,7 +6,11 @@ from .storage import DATA, identifier, write_json
 
 
 def capture(
-    scene_id: str, revision_id: str, camera_name: str, region: ImageRegion | None = None
+    scene_id: str,
+    revision_id: str,
+    camera_name: str,
+    region: ImageRegion | None = None,
+    isolated_asset: str | None = None,
 ):
     """Render the same scene revision and calibrated camera used by the interactive UI."""
     base = os.environ.get("CLEANROOM_VIEWER_URL", "http://127.0.0.1:5173")
@@ -30,6 +34,11 @@ def capture(
             info = page.evaluate(
                 "async name => await window.cleanroom.capture(name)", camera_name
             )
+            if isolated_asset is not None:
+                info = page.evaluate(
+                    "async id => await window.cleanroom.isolateAsset(id)",
+                    isolated_asset,
+                )
             if info["scene_id"] != scene_id or info["revision_id"] != revision_id:
                 raise ValueError("Viewer did not load the requested scene revision")
             if errors:

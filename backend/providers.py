@@ -42,7 +42,7 @@ def vision(prompt: str, images: list[Path | Image.Image], max_tokens=4096):
             + "/"
             + os.environ.get("WANDB_PROJECT", "clean-room-imputation")
         )
-    with httpx.Client(timeout=120) as client:
+    with httpx.Client(timeout=httpx.Timeout(600, connect=30)) as client:
         response = client.post(
             "https://api.inference.wandb.ai/v1/chat/completions",
             headers=headers,

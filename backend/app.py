@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from .models import Edit, ImageRegion
+from .models import Edit, ImageRegion, Camera
 from .storage import (
     DATA,
     read_scene,
@@ -14,6 +14,7 @@ from .storage import (
     media_path,
     identifier,
     event,
+    save_camera,
 )
 from .capture import capture
 
@@ -172,3 +173,14 @@ def job(job_id: str):
     if job_id not in JOBS:
         raise HTTPException(404, "Job not found in this server session")
     return JOBS[job_id]
+
+
+class CameraRequest(BaseModel):
+    camera: Camera
+    reason: str = Field(min_length=5)
+
+
+@app.post("/api/scenes/{scene_id}/cameras")
+def register_camera(scene_id: str, request: CameraRequest):
+    name = save_camera(scene_id, request.camera, request.reason)
+    return {"name": name, "camera": request.camera.model_dump()}

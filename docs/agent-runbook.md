@@ -58,7 +58,8 @@ An image box does not define a 3D edit. The browser tool `window.cleanroom.pick(
 
 An edit JSON contains a unique `id`, `operation`, `asset_id`, `reason`, and nonempty `evidence` list, plus operation-specific fields:
 
-- `hide_region`: `bounds: {minimum:[x,y,z],maximum:[x,y,z]}`. Scoped to a splat asset; removes collider triangles intersecting that region. This is coarse triangle removal, not a watertight Boolean repair.
+- `hide_region`: `bounds: {minimum:[x,y,z],maximum:[x,y,z]}`. Scoped to a splat or mesh asset; removes matching visual/collider triangles intersecting that region. This is coarse triangle removal, not a watertight Boolean repair.
+- `hide_asset`: hides an independent asset and its collider. Inspect its contents first; a layer label alone is insufficient. Cannot hide the last visible source asset.
 - `transform_asset`: `transform: {position:[x,y,z],rotation:[rx,ry,rz],scale:[sx,sy,sz]}`. Euler angles in radians; moves the whole independent asset, not one baked-in object.
 - `place_asset`: a transform and an existing inactive library asset ID. Activates that asset only in the candidate revision; rollback hides it again.
 - `add_surface`: a transform, positive `size:[x,y,z]`, and `color`. Creates a plain box; only appropriate for evidence-supported simple completions.
@@ -87,7 +88,7 @@ The automated version is:
 uv run python -m backend.cli loop office --passes 2
 ```
 
-This spends W&B inference credits. It captures two views, requests a structured observation and proposal, can request one additional existing view, applies a candidate, and evaluates matched before/after views. When available, another camera is withheld from the proposal and added for regression checks. Mechanical checks reject mismatched cameras or unchanged images before paid evaluation. The evaluator must explicitly report defect resolution, furniture preservation, no new damage, and no unresolved uncertainties to accept. Original source references accompany the comparison. Malformed or inconclusive assessments reject the candidate. A rejected edit remains rejected while the next bounded pass sees its evaluation and may propose a different hypothesis. Identical spatial proposals within a run stop without another paid evaluation. The current loop does not autonomously invoke asset generation or create arbitrary new camera poses yet.
+This spends W&B inference credits. It captures two views, requests a structured observation and proposal, can request one additional existing view, applies a candidate, and evaluates matched before/after views. When available, another camera is withheld from the proposal and added for regression checks. Mechanical checks reject mismatched cameras or unchanged images before paid evaluation. The evaluator must explicitly report defect resolution, furniture preservation, no new damage, and no unresolved uncertainties to accept. Original source references accompany the comparison. Malformed or inconclusive assessments reject the candidate. A rejected edit remains rejected while the next bounded pass sees its evaluation and may propose a different hypothesis. Identical spatial proposals within a run stop without another paid evaluation. The current v5 loop can request one new camera pose inside scene bounds and one isolated-layer inspection. Isolated views inform diagnosis but are excluded from the full-scene before/after comparison. It does not autonomously invoke asset generation yet.
 
 `reconstruct IMAGE --box '[x_min,y_min,x_max,y_max]'` is a separate paid fal tool. It submits once, saves the request id before polling, and downloads assets. If polling times out, use saved job information to resume rather than paying for a duplicate request. Generated output still needs inspection and import/placement; generation is not scene repair by itself.
 
@@ -120,21 +121,39 @@ The browser check currently expects the local `chair-probe` scene and produces i
 
 ## Evidence checkpoint — September 13, 2026
 
-- Twenty-two local tests pass, including rejection/retry behavior with **mocked** model responses. This does not establish vision-model reliability.
+- Twenty-five local tests pass, including rejection/retry behavior with **mocked** model responses. This does not establish vision-model reliability.
 - An actual rendered mechanics test cut the chair splat and reduced collider triangles from 269,740 to 227,452. Rollback restored 269,740 triangles and the original screenshot exactly. It also verified reversible activation of a library asset. The deliberate test cut was not an agent-discovered defect or a useful restoration. Artifacts are local under `.artifacts/revision-check/`.
 - [A real one-pass inspection trace](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a099e4-2700-7a98-b118-f6011c7b8759) completed with W&B image inference and image-bearing Weave inputs. It stopped without an edit because the input was an isolated chair rather than the office. This ran prompt v3; v4 adds library placement and rejected-edit feedback, which have local mechanical tests but no live room evaluation yet.
 - Earlier live attempts exposed an in-operation flush hang and an exhausted output allowance. The flush moved outside the traced operation; the output allowance increased to 4,096, and the observation request became more concise. Neither failed attempt changed the accepted scene.
-- Room restoration, segmentation accuracy, object replacement quality, and reliable detection of remaining occupants remain unverified. Mint OAuth now works, but two office requests failed in its upstream fal preview provider with an exhausted-balance error. The supplied fal account works independently. A Hunyuan World fallback job is processing; its output is not yet validated.
+- Room restoration, segmentation accuracy, object replacement quality, and reliable detection of remaining occupants remain unverified. Mint OAuth now works, but two office requests failed in its upstream fal preview provider with an exhausted-balance error. The supplied fal account works independently. A first Hunyuan World output was rendered but rejected as a faithful room: the endpoint accepted an ordinary photo even though reconstruction expects a panorama. A corrected panorama-based job is processing.
 
 
 ## Checkpointed provider jobs and remote worlds
 
 `segment IMAGE --prompt person` submits a fal SAM 3 image-segmentation request, validates returned mask dimensions, and saves model scores, masks, and the request ID. The actual office photo returned 19 candidate masks, including potentially overlapping detections; that is not a verified count of people.
 
-`review-segmentation data/segmentation/JOB/segmentation.json` reviews source crops and mask overlays through W&B image inference and Weave. Each batch is checkpointed. Only explicit person-only decisions enter the candidate mask union; the source remains unchanged. The live review exposed JSON-container variation and output exhaustion. Container normalization preserves strict decision validation; the review allowance is now 8,192 tokens. Full review completion and accuracy remain unverified.
+`review-segmentation data/segmentation/JOB/segmentation.json` reviews source crops and mask overlays through W&B image inference and Weave. Each batch is checkpointed. Only explicit person-only decisions enter the candidate mask union; the source remains unchanged. The live review exposed JSON-container variation and output exhaustion. Container normalization preserves strict decision validation; 8,192 tokens also proved insufficient. W&B documents GLM-5.3-Flash reasoning as always on. The allowance is now 32,768 tokens with a 600-second read timeout. Full office-mask review completed, retaining 13 person-only candidates and withholding six; these are model judgments, not independently established segmentation accuracy.
 
 `resume-fal data/PATH/job.json --timeout 600` resumes a queued request without another submission. Timeouts preserve its handle. Never submit a duplicate merely because a polling process ended.
 
 `import-mint-world MANIFEST --id office --title 'Office reconstruction' --reference IMAGE` imports the actual remote RAD contract and downloads its paired collider. Use `--fixture` for prior content used only to test integration. Initial cameras look along coordinate axes at the reconstruction origin; they are not recovered source-camera calibration. Remote RAD remains dependent on its provider URL in exported packages.
 
 The optional `generate-marble SOURCE --prompt TEXT` and `resume-marble OPERATION` commands use a separate `WORLDLABS_API_KEY`. Their protocol has mocked tests only. Mint authentication and credits cannot substitute for this key. Image/video inline inputs are limited to 10 MB by this adapter; preserve originals when preparing derivatives.
+
+
+## Layered world import and inspection
+
+`import-hunyuan JOB_JSON --id office --title 'Office reconstruction' --reference SOURCE_IMAGE` consumes a completed Hunyuan World job. The importer validates 2:1 panorama dimensions, retains downloaded originals, converts mesh layers to lighter GLBs with linear vertex colors, and applies the official viewer orientation. Simplification can lose appearance detail. Background and distant-shell layers are protected from removal. Full live import of the corrected panorama job is still pending.
+
+`capture office --camera Forward --isolate layer-0` inspects a single layer without changing accepted scene state. Model labels are hypotheses; people and furniture can share a layer. Browser checks on the rejected projection experiment confirmed single-layer visibility and pixel-exact restoration after exiting isolation. This is a mechanics result, not an accepted repair.
+
+The UI's Capture view now saves the current orbit-camera pose before headless capture. Saved camera names cannot be overwritten, preserving prior evidence definitions. Headless images use a fixed viewport, so framing aspect ratio can differ from the interactive panel.
+
+A live assistant-led 2D preparation experiment used built-in image editing, W&B comparison, enlarged-crop inspection, a targeted correction, and the same comparison prompt again. The first judgment requested revision; the second reported no definite people, preserved visible furniture and architecture, and recommended provisional use while retaining background uncertainty. This is not the deployed 3D loop and does not establish a completed office. Traces: [first comparison](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09b7f-5d1a-7e42-90d3-73d6b2b52434), [second comparison](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09b85-c436-7757-8d85-803c103fbd03), [mask review](https://wandb.ai/s-rekaitai/clean-room-imputation/r/call/01a09b7e-609d-7766-9682-360cd195e60d).
+
+SAM image results sort masks and metadata together by score; metadata `index` identifies the pre-sort detection, not the returned mask-array offset. Preserve both indices. This was verified against actual mask extents and covered by a regression test. Source images are copied into the segmentation evidence directory for portable replay.
+
+
+For individual SAM object exports, use `align-sam SCENE --canonical`. Their normalized coordinates differ from the combined scene; applying the combined-scene scale/translation to an individual pair produced residual 0.1546, while canonical-frame fitting reduced it to 0.0124 in unverified units on one office chair. This is empirical alignment, not physical calibration. An initial Z-up splat was rotated into the viewer's Y-up frame for inspection; inspect each imported asset rather than assuming one convention universally.
+
+The expanded region-removal test now covers actual mesh appearance and collision geometry: a deliberate fixture cut removed 7,314 of 99,999 collider triangles and changed 0.128% of pixels; rollback restored both exactly. The splat rollback test continues to pass. These fixtures do not represent successful office repairs.

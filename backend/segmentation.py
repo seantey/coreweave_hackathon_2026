@@ -1,6 +1,7 @@
 """Text-guided segmentation of source images or saved simulation views."""
 
 import base64
+import shutil
 from pathlib import Path
 import httpx
 from PIL import Image
@@ -15,6 +16,9 @@ def segment(image: Path, prompt: str, maximum_masks: int = 32):
         size = opened.size
         mime = Image.MIME.get(opened.format, "image/jpeg")
     directory = DATA / "segmentation" / identifier("sam")
+    directory.mkdir(parents=True)
+    preserved_source = directory / ("source" + image.suffix.lower())
+    shutil.copy2(image, preserved_source)
     job = submit(
         "fal-ai/sam-3/image",
         {
@@ -41,17 +45,22 @@ def segment(image: Path, prompt: str, maximum_masks: int = 32):
             with Image.open(path) as mask:
                 if mask.size != size:
                     raise ValueError("Mask dimensions do not match the source image")
-            metadata = next(
-                (
-                    value
-                    for value in result.get("metadata", [])
-                    if value.get("index") == index
-                ),
-                {},
+            # Returned masks and metadata are sorted together by confidence. The
+            # metadata index is the detector's original index, not the mask-list offset.
+            entries = result.get("metadata", [])
+            metadata = entries[index] if index < len(entries) else {}
+            masks.append(
+                {
+                    "path": str(path.relative_to(DATA)),
+                    "mask_id": index,
+                    "provider_index": metadata.get("index"),
+                    "score": metadata.get("score"),
+                    "box": metadata.get("box"),
+                }
             )
-            masks.append({"path": str(path.relative_to(DATA)), **metadata})
     output = {
-        "source_image": str(image),
+        "source_image": str(preserved_source.relative_to(DATA)),
+        "input_origin": str(image.resolve()),
         "source_size": size,
         "prompt": prompt,
         "masks": masks,

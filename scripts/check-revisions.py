@@ -1,4 +1,4 @@
-"""Check actual splat/collider edit and rollback against an imported asset.
+"""Check actual appearance/collider edit and rollback against an imported asset.
 
 Creates an explicitly labeled temporary scene. This deliberately destructive test
 edit is never proposed as a useful restoration and never changes the source scene.
@@ -19,6 +19,7 @@ from backend.models import Edit, Bounds, Revision, Transform
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--scene", default="chair-probe")
+parser.add_argument("--output", default=".artifacts/revision-check")
 args = parser.parse_args()
 source = storage.read_scene(args.scene)
 fixture_id = storage.identifier("mechanics-test")
@@ -42,7 +43,7 @@ library.id = "library-test"
 library.initially_visible = False
 fixture.assets.append(library)
 storage.save_scene(fixture)
-output = Path(".artifacts/revision-check")
+output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 midpoint = (np.array(source.bounds.minimum) + source.bounds.maximum) / 2
 halfsize = (np.array(source.bounds.maximum) - source.bounds.minimum) * np.array(
@@ -119,7 +120,7 @@ try:
             rollback = float(
                 (np.abs(arrays["before"] - arrays["restored"]).max(axis=2) > 3).mean()
             )
-            assert changed > 0.0001, "Splat cut must visibly affect the rendered asset"
+            assert changed > 0.0001, "Region cut must visibly affect the rendered asset"
             assert rollback < 0.0001, "Rollback must restore the original appearance"
             counts = {
                 name: next(

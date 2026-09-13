@@ -66,7 +66,7 @@ def review_sheet(source: Image.Image, masks: list[tuple[int, Image.Image]]):
 def review_segmentation(segmentation_path: str):
     path = Path(segmentation_path)
     record = json.loads(path.read_text())
-    source = Image.open(record["source_image"]).convert("RGB")
+    source = Image.open(media_path(record["source_image"])).convert("RGB")
     decisions = []
     for start in range(0, len(record["masks"]), 5):
         selected = record["masks"][start : start + 5]
@@ -88,7 +88,7 @@ Do not infer identity or transcribe screens/signs. This assesses two-dimensional
         if checkpoint.exists():
             response = json.loads(checkpoint.read_text())
         else:
-            response = vision_review(prompt, [source, sheet], max_tokens=8192)
+            response = vision_review(prompt, [source, sheet], max_tokens=32768)
             write_json(checkpoint, response)
         # Some providers return the requested decision list without its outer object.
         # Normalize only that container; every decision still undergoes strict validation.

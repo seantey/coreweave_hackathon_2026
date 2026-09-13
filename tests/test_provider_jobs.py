@@ -106,3 +106,42 @@ def test_remote_assets_cannot_embed_credentials_or_ambiguous_sources():
             remote_url="https://example.com/world.rad",
             path="world.ply",
         )
+
+
+def test_segmentation_preserves_sorted_mask_metadata_and_source(tmp_path, monkeypatch):
+    import io
+    from backend import segmentation
+
+    monkeypatch.setattr(segmentation, "DATA", tmp_path / "data")
+    source = tmp_path / "original.png"
+    Image.new("RGB", (12, 8), "white").save(source)
+    mask_bytes = io.BytesIO()
+    Image.new("L", (12, 8), 255).save(mask_bytes, format="PNG")
+    monkeypatch.setattr(
+        segmentation,
+        "submit",
+        lambda endpoint, payload, directory: directory / "job.json",
+    )
+    monkeypatch.setattr(
+        segmentation,
+        "resume",
+        lambda path: {
+            "masks": [
+                {"url": "https://example.com/first.png"},
+                {"url": "https://example.com/second.png"},
+            ],
+            "metadata": [
+                {"index": 7, "score": 0.95, "box": [0.5, 0.5, 0.8, 0.8]},
+                {"index": 0, "score": 0.7, "box": [0.2, 0.2, 0.1, 0.1]},
+            ],
+        },
+    )
+    install_transport(
+        monkeypatch, lambda request: httpx.Response(200, content=mask_bytes.getvalue())
+    )
+    result = segmentation.segment(source, "chair")
+    source.unlink()
+    assert result["masks"][0]["provider_index"] == 7
+    assert result["masks"][0]["score"] == 0.95
+    assert result["masks"][1]["provider_index"] == 0
+    assert (segmentation.DATA / result["source_image"]).is_file()

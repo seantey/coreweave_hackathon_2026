@@ -5,7 +5,7 @@ import weave
 from PIL import Image
 from . import providers
 from .capture import capture
-from .models import Edit, ImageRegion
+from .models import Edit, ImageRegion, Camera
 from .verification import VisualAssessment, compare_views
 from .storage import (
     read_scene,
@@ -16,9 +16,10 @@ from .storage import (
     media_path,
     write_json,
     DATA,
+    save_camera,
 )
 
-PROMPT_VERSION = "office-preservation-v4"
+PROMPT_VERSION = "office-preservation-v5"
 CLIENT = None
 
 
@@ -37,7 +38,7 @@ def initialize_tracing():
 
 
 @weave.op()
-def vision_review(prompt: str, images: list[Image.Image], max_tokens: int = 4096):
+def vision_review(prompt: str, images: list[Image.Image], max_tokens: int = 32768):
     """Attach the exact reviewed image pixels to the trace, alongside the final answer."""
     return providers.vision(prompt, images, max_tokens=max_tokens)
 
@@ -76,16 +77,21 @@ All lengths are arbitrary scene units unless metric_status is explicitly calibra
 Scene bounds (world coordinates): {scene.bounds.model_dump()}.
 Return concise JSON only, with at most three observations and these keys:
 observations: list of {{issue, evidence_views: [camera names], confidence: 'high'|'medium'|'low', needs_more_evidence: boolean}},
-next_action: 'inspect'|'probe'|'repair'|'stop',
+next_action: 'inspect'|'isolate'|'navigate'|'probe'|'repair'|'stop',
 reason: string,
 camera: existing camera name or null,
+asset_id: existing asset id or null (for isolate),
+camera_pose: null or {{position:[x,y,z],target:[x,y,z],fov:number}},
 region: null or {{minimum:[left,top],maximum:[right,bottom]}} in normalized image coordinates [0,1],
-edit: null or {{operation:'hide_region'|'transform_asset'|'place_asset'|'add_surface',asset_id:string,reason:string,evidence:[view names],bounds:{{minimum:[x,y,z],maximum:[x,y,z]}} or null,transform:{{position:[x,y,z],rotation:[x,y,z],scale:[x,y,z]}} or null,size:[x,y,z] or null,color:'#hex'}}.
+edit: null or {{operation:'hide_asset'|'hide_region'|'transform_asset'|'place_asset'|'add_surface',asset_id:string,reason:string,evidence:[view names],bounds:{{minimum:[x,y,z],maximum:[x,y,z]}} or null,transform:{{position:[x,y,z],rotation:[x,y,z],scale:[x,y,z]}} or null,size:[x,y,z] or null,color:'#hex'}}.
 Only propose a spatial edit when its coordinates are grounded in supplied geometry metadata.
+Use next_action='navigate' with camera_pose to inspect a new viewpoint, grounding position and target in supplied scene coordinates. This is a virtual camera, not collision-checked travel; do not assume its path is physically traversable. Keep the camera close to observed geometry and within the scene bounds.
 Use next_action='probe', camera, and region to inspect collider intersections beneath a specific image region.
 Probe samples contain actual collider hits, not segmentation or independent evidence of real geometry.
 A hit may be a background surface behind an unmodeled person. Do not erase the entire sampled volume blindly.
-hide_region suppresses a box in one splat asset, and removes its matching collider triangles; it may expose holes.
+Use next_action='isolate' with asset_id and camera to inspect one layer alone. Use this before hiding an entire layer: detector labels are hypotheses, and people may be mixed with furniture.
+hide_asset hides one independent asset including its collider; propose only when inspected evidence shows it contains solely unwanted people/remnants, and the full-scene comparison must verify the revealed background and furniture preservation.
+hide_region suppresses splats or removes mesh triangles in a box, and removes matching collider triangles; it may expose holes.
 transform_asset moves an entire independent asset. add_surface adds a plain box: use only for simple missing surfaces with evidence, never to cover people.
 place_asset activates an existing library asset (initially_visible=false) at a grounded transform. It does not generate an asset. Use only when its identity and placement are supported; do not duplicate existing furniture.
 Do not improve appearances by changing the original design. Stop with uncertainty when no supported repair is available.
@@ -196,6 +202,47 @@ def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
                     {"job_id": job_id, "views": before, **observation},
                 )
                 choice = observation["assessment"]
+        if (
+            choice.get("next_action") == "isolate"
+            and choice.get("camera") in scene.cameras
+        ):
+            isolated = capture(
+                scene_id,
+                scene.current_revision,
+                choice["camera"],
+                isolated_asset=choice.get("asset_id"),
+            )
+            observation = observe_scene(
+                scene_id, scene.current_revision, before + [isolated]
+            )
+            event(
+                scene_id,
+                "isolated_observation",
+                {"job_id": job_id, "views": before + [isolated], **observation},
+            )
+            choice = observation["assessment"]
+        if choice.get("next_action") == "navigate":
+            pose = Camera.model_validate(choice.get("camera_pose"))
+            if any(
+                x < low or x > high
+                for x, low, high in zip(
+                    pose.position, scene.bounds.minimum, scene.bounds.maximum
+                )
+            ):
+                raise ValueError(
+                    "Inspection camera lies outside the declared scene bounds"
+                )
+            name = save_camera(
+                scene_id, pose, choice.get("reason", "Inspect a new viewpoint")
+            )
+            before.append(capture(scene_id, scene.current_revision, name))
+            observation = observe_scene(scene_id, scene.current_revision, before)
+            event(
+                scene_id,
+                "navigated_observation",
+                {"job_id": job_id, "views": before, **observation},
+            )
+            choice = observation["assessment"]
         if choice.get("next_action") != "repair" or not choice.get("edit"):
             history.append(
                 {

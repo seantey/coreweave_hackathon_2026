@@ -2,7 +2,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import json, os, threading, uuid
 from dotenv import load_dotenv
-from .models import Scene, Edit, Revision, validate_edit
+from .models import Scene, Edit, Revision, Camera, validate_edit
 
 load_dotenv(os.environ.get("CLEANROOM_ENV_FILE", ".env"))
 DATA = Path(os.environ.get("CLEANROOM_DATA_DIR", "data")).resolve()
@@ -114,3 +114,26 @@ def event(scene_id, kind, payload):
         with p.open("a") as f:
             f.write(json.dumps(entry, allow_nan=False) + "\n")
     return entry
+
+
+def save_camera(scene_id: str, camera: Camera, reason: str, name: str | None = None):
+    """Append a reproducible view without changing existing evidence camera definitions."""
+    if len(reason.strip()) < 5:
+        raise ValueError("A camera needs an inspection reason")
+    with LOCK:
+        scene = read_scene(scene_id)
+        camera_name = name or identifier("inspection")
+        if camera_name in scene.cameras:
+            raise ValueError("Saved cameras cannot be overwritten; use a new name")
+        scene.cameras[camera_name] = camera
+        save_scene(scene)
+        event(
+            scene_id,
+            "camera_registered",
+            {
+                "camera_name": camera_name,
+                "camera": camera.model_dump(),
+                "reason": reason,
+            },
+        )
+        return camera_name

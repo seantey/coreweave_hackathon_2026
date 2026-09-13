@@ -75,6 +75,7 @@ class Asset(StrictModel):
     path: str | None = None
     remote_url: str | None = None
     paged: bool = False
+    unlit: bool = False
     collider_path: str | None = None
     collider_matrix: tuple[float, ...] | None = None
     transform: Transform = Field(default_factory=Transform)
@@ -106,7 +107,9 @@ class Asset(StrictModel):
 
 class Edit(StrictModel):
     id: str
-    operation: Literal["hide_region", "transform_asset", "place_asset", "add_surface"]
+    operation: Literal[
+        "hide_region", "hide_asset", "transform_asset", "place_asset", "add_surface"
+    ]
     asset_id: str
     reason: str = Field(min_length=5)
     evidence: list[str] = Field(min_length=1)
@@ -168,10 +171,26 @@ def validate_edit(scene: Scene, edit: Edit):
         raise ValueError("Target is protected")
     if edit.operation == "place_asset" and assets[edit.asset_id].initially_visible:
         raise ValueError("place_asset requires an inactive library asset")
+    if edit.operation == "hide_asset":
+        visible = {asset.id for asset in scene.assets if asset.initially_visible}
+        current = next(
+            revision
+            for revision in scene.revisions
+            if revision.id == scene.current_revision
+        )
+        for previous in current.edits:
+            if previous.operation == "hide_asset":
+                visible.discard(previous.asset_id)
+            elif previous.operation == "place_asset":
+                visible.add(previous.asset_id)
+        if edit.asset_id not in visible:
+            raise ValueError("Target asset is already hidden")
+        if len(visible) < 2:
+            raise ValueError("Cannot hide the only visible source asset")
     if edit.operation == "hide_region":
         target = assets[edit.asset_id]
-        if target.kind != "splat":
-            raise ValueError("Region removal currently supports splats only")
+        if target.kind not in ("splat", "mesh"):
+            raise ValueError("Region removal requires splat or mesh geometry")
         if edit.bounds.volume() > scene.bounds.volume() * 0.12:
             raise ValueError(
                 "Removal exceeds 12% of scene bounding volume; narrow the region"

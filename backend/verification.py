@@ -48,6 +48,8 @@ def compare_views(before: list[dict], after: list[dict]):
             pixels_after = np.asarray(image.convert("RGB"), dtype=np.int16)
         if pixels_before.shape != pixels_after.shape:
             raise ValueError("Comparison image dimensions differ")
+        if original.get("isolated_asset") != candidate.get("isolated_asset"):
+            raise ValueError("Comparison requires the same asset visibility scope")
         difference = np.abs(pixels_before - pixels_after)
         changed_fraction = float((difference.max(axis=2) > 3).mean())
         results.append(

@@ -129,6 +129,11 @@ def import_scene(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("import-hunyuan")
+    p.add_argument("job")
+    p.add_argument("--id", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--reference", action="append", default=[])
     p = commands.add_parser("review-segmentation")
     p.add_argument("segmentation")
     p = commands.add_parser("generate-marble")
@@ -178,6 +183,9 @@ def main():
     p.add_argument("--camera", default="Front")
     p.add_argument("--revision")
     p.add_argument(
+        "--isolate", help="Inspect one asset without changing the accepted scene"
+    )
+    p.add_argument(
         "--region",
         help="JSON [left,top,right,bottom], normalized image rectangle for collider inspection",
     )
@@ -201,7 +209,12 @@ def main():
     p.add_argument("output")
     p = commands.add_parser("align-sam")
     p.add_argument("scene")
-    p.add_argument("metadata_file")
+    p.add_argument("metadata_file", nargs="?")
+    p.add_argument(
+        "--canonical",
+        action="store_true",
+        help="Align individual canonical outputs without applying combined-scene metadata",
+    )
     p.add_argument("--asset", default="source")
     p = commands.add_parser("register-asset")
     p.add_argument("scene")
@@ -219,7 +232,11 @@ def main():
         help="Source and uncertainty of this reusable asset",
     )
     args = parser.parse_args()
-    if args.command == "review-segmentation":
+    if args.command == "import-hunyuan":
+        from .hunyuan import import_world
+
+        print(import_world(Path(args.job), args.id, args.title, args.reference).id)
+    elif args.command == "review-segmentation":
         from . import agent
         from .mask_review import review_segmentation
 
@@ -294,6 +311,7 @@ def main():
                     args.revision or scene.current_revision,
                     args.camera,
                     region,
+                    args.isolate,
                 ),
                 indent=2,
             )
@@ -334,7 +352,18 @@ def main():
             raise ValueError("Both splat and collider are required")
         if len(scene.revisions) > 1:
             raise ValueError("Calibrate before making scene revisions")
-        metadata = json.loads(Path(args.metadata_file).read_text())["metadata"][0]
+        if args.canonical:
+            metadata = {
+                "rotation": [[0, 0, 0, 1]],
+                "scale": [[1, 1, 1]],
+                "translation": [[0, 0, 0]],
+            }
+        elif args.metadata_file:
+            metadata = json.loads(Path(args.metadata_file).read_text())["metadata"][0]
+        else:
+            raise ValueError(
+                "Supply metadata or --canonical for individual object exports"
+            )
         result = fit(media_path(asset.path), media_path(asset.collider_path), metadata)
         asset.collider_matrix = tuple(result["best"]["matrix"])
         save_scene(scene)
