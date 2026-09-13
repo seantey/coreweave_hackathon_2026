@@ -1,0 +1,112 @@
+"""Bounded inspection/repair loop, callable from the UI or CLI and traced in Weave."""
+import json, os
+import weave
+from . import providers
+from .capture import capture
+from .models import Edit
+from .storage import read_scene, propose, decide, event, identifier, media_path, write_json, DATA
+
+PROMPT_VERSION = "office-preservation-v1"
+CLIENT = None
+
+
+def initialize_tracing():
+    global CLIENT
+    if CLIENT is None and os.environ.get("WANDB_API_KEY") and os.environ.get("CLEANROOM_WEAVE","true").lower()=="true":
+        CLIENT=weave.init(os.environ.get("WANDB_ENTITY","")+"/"+os.environ.get("WANDB_PROJECT","clean-room-imputation"))
+
+
+@weave.op()
+def observe_scene(scene_id: str, revision_id: str, views: list[dict]):
+    scene=read_scene(scene_id)
+    prompt=f"""You inspect a 3D reconstruction, not a real room. Goal: {scene.goal}
+Source kind: {scene.source_kind}. An object_probe is only an isolated model test, not an office.
+Never invent people or claim hidden geometry is correct. Report specific visible defects and uncertainty.
+The first images are simulation views; their camera metadata is {json.dumps(views)}.
+Any final images are original references, not current renderings.
+Asset inventory: {json.dumps([a.model_dump() for a in scene.assets])}
+Scene bounds (world coordinates): {scene.bounds.model_dump()}.
+Return JSON only with keys:
+observations: list of {{issue, evidence_views: [camera names], confidence: 'high'|'medium'|'low', needs_more_evidence: boolean}},
+next_action: 'inspect'|'repair'|'stop',
+reason: string,
+camera: existing camera name or null,
+edit: null or {{operation:'hide_region'|'transform_asset'|'add_surface',asset_id:string,reason:string,evidence:[view names],bounds:{{minimum:[x,y,z],maximum:[x,y,z]}} or null,transform:{{position:[x,y,z],rotation:[x,y,z],scale:[x,y,z]}} or null,size:[x,y,z] or null,color:'#hex'}}.
+Only propose a spatial edit when its coordinates are grounded in supplied geometry metadata.
+hide_region suppresses a box in one splat asset, and removes its matching collider triangles; it may expose holes.
+transform_asset moves an entire independent asset. add_surface adds a plain box: use only for simple missing surfaces with evidence, never to cover people.
+Do not improve appearances by changing the original design. Stop with uncertainty when no supported repair is available.
+Do not transcribe screens or signs. Prompt version {PROMPT_VERSION}."""
+    paths=[media_path(v["image"]) for v in views]
+    paths += [media_path(r) for r in scene.references[:1]]
+    result=providers.vision(prompt,paths)
+    return {"prompt_version":PROMPT_VERSION,"prompt":prompt,**result,"assessment":providers.structured(result["text"])}
+
+
+@weave.op()
+def evaluate_revision(scene_id: str, edit: dict, before: list[dict], after: list[dict]):
+    scene=read_scene(scene_id)
+    prompt=f"""Evaluate a proposed 3D scene repair against this unchanged goal: {scene.goal}
+Proposed edit: {json.dumps(edit)}.
+Images are ordered: {len(before)} BEFORE views, then {len(after)} AFTER views at exactly the same cameras.
+Camera names: {[v['camera_name'] for v in before]}.
+Assess actual visual evidence. An unchanged image is not improvement. Missing evidence means uncertain, not pass.
+Return JSON only: {{"defect_resolved":true|false|null,"furniture_preserved":true|false|null,
+"new_visible_damage":true|false|null,"evidence":string,"uncertainties":[string]}}.
+All three checks need decisive evidence to accept: resolved=true, preserved=true, damage=false.
+Do not reward removal of furniture or simply covering a defect. This checks rendered consistency, not unseen real geometry.
+Prompt version {PROMPT_VERSION}."""
+    result=providers.vision(prompt,[media_path(v["image"]) for v in before+after])
+    assessment=providers.structured(result["text"])
+    accepted=(assessment.get("defect_resolved") is True and assessment.get("furniture_preserved") is True
+              and assessment.get("new_visible_damage") is False)
+    return {"prompt_version":PROMPT_VERSION,"prompt":prompt,**result,"assessment":assessment,"accepted":accepted}
+
+
+@weave.op()
+def repair_loop(scene_id: str, max_passes: int = 2, job_id: str | None = None):
+    """No implicit asset-generation calls. Every pass is checkpointed and bounded."""
+    if not 1 <= max_passes <= 5:raise ValueError("Use between 1 and 5 passes")
+    job_id=job_id or identifier("loop")
+    history=[]
+    for index in range(max_passes):
+        scene=read_scene(scene_id)
+        selected=list(scene.cameras)[:2]
+        event(scene_id,"inspection_started",{"job_id":job_id,"pass":index+1,"revision":scene.current_revision})
+        before=[capture(scene_id,scene.current_revision,c) for c in selected]
+        observation=observe_scene(scene_id,scene.current_revision,before)
+        event(scene_id,"observation",{"job_id":job_id,"pass":index+1,"views":before,**observation})
+        choice=observation["assessment"]
+        if choice.get("next_action")=="inspect" and choice.get("camera") in scene.cameras:
+            name=choice["camera"]
+            if name not in selected:
+                before.append(capture(scene_id,scene.current_revision,name))
+                observation=observe_scene(scene_id,scene.current_revision,before)
+                event(scene_id,"additional_observation",{"job_id":job_id,"views":before,**observation})
+                choice=observation["assessment"]
+        if choice.get("next_action")!="repair" or not choice.get("edit"):
+            history.append({"pass":index+1,"outcome":"stopped","reason":choice.get("reason","Insufficient evidence")})
+            break
+        try:
+            edit=Edit.model_validate({**choice["edit"],"id":identifier("edit")})
+            revision=propose(scene_id,edit,scene.current_revision)
+        except ValueError as e:
+            history.append({"pass":index+1,"outcome":"invalid_proposal","reason":str(e)})
+            event(scene_id,"proposal_rejected",history[-1]);break
+        event(scene_id,"candidate",{"job_id":job_id,"revision":revision.model_dump(mode="json")})
+        try:
+            after=[capture(scene_id,revision.id,v["camera_name"]) for v in before]
+            evaluation=evaluate_revision(scene_id,edit.model_dump(mode="json"),before,after)
+            decide(scene_id,revision.id,evaluation["accepted"],evaluation)
+        except Exception:
+            decide(scene_id,revision.id,False,{"reason":"Verification failed; original revision retained"})
+            raise
+        history.append({"pass":index+1,"revision":revision.id,"outcome":"accepted" if evaluation["accepted"] else "rejected"})
+        event(scene_id,"evaluation",{"job_id":job_id,"before":before,"after":after,**evaluation,**history[-1]})
+        # A rejected edit needs a new hypothesis, not automatic repetition of the same proposal.
+        if not evaluation["accepted"]:break
+    result={"job_id":job_id,"scene_id":scene_id,"passes":history,"prompt_version":PROMPT_VERSION}
+    write_json(DATA/"runs"/(job_id+".json"),result)
+    event(scene_id,"loop_finished",result)
+    if CLIENT:CLIENT.flush()
+    return result

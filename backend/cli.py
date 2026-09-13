@@ -1,0 +1,118 @@
+"""Command-line access to the same scene operations used by the application."""
+import argparse, json, shutil
+from pathlib import Path
+import numpy as np
+from .storage import DATA, read_scene, save_scene, timestamp, identifier, write_json, propose, decide
+from .models import Scene, Asset, Camera, Bounds, Revision, Transform, Edit
+
+
+def copy_asset(source, scene_id):
+    source=Path(source).resolve()
+    if not source.is_file():raise ValueError(f"Missing input: {source}")
+    destination=DATA/"assets"/scene_id/source.name
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    if source!=destination:shutil.copy2(source,destination)
+    return str(destination.relative_to(DATA))
+
+
+def ply_bounds(path):
+    """Read Gaussian center bounds for framing, not physical units or semantic geometry."""
+    fields=[];count=None
+    with Path(path).open('rb') as f:
+        for _ in range(200):
+            line=f.readline().decode('ascii').strip()
+            if line.startswith('format ') and line!='format binary_little_endian 1.0':
+                raise ValueError('Automatic framing supports binary little-endian Gaussian PLY; supply bounds for other formats')
+            if line.startswith('element vertex '):count=int(line.split()[-1])
+            if line.startswith('property '):
+                _,kind,name=line.split()
+                if kind!='float':raise ValueError('Automatic PLY framing requires float fields')
+                fields.append((name,'<f4'))
+            if line=='end_header':break
+        if not count:raise ValueError('No vertices found')
+        a=np.fromfile(f,dtype=np.dtype(fields),count=count)
+        points=np.stack([a[k] for k in ('x','y','z')],axis=1)
+        points=points[np.isfinite(points).all(axis=1)]
+        low=np.quantile(points,.005,axis=0);high=np.quantile(points,.995,axis=0)
+        padding=np.maximum((high-low)*.15,.02)
+        return Bounds(minimum=tuple(low-padding),maximum=tuple(high+padding))
+
+
+def import_scene(args):
+    if (DATA/'scenes'/args.id/'scene.json').exists():raise ValueError('Scene already exists; choose a new id')
+    if args.bounds:
+        values=json.loads(args.bounds);bounds=Bounds(minimum=values[:3],maximum=values[3:])
+    else:bounds=ply_bounds(args.splat)
+    midpoint=(np.array(bounds.minimum)+np.array(bounds.maximum))/2
+    radius=float(np.linalg.norm(np.array(bounds.maximum)-np.array(bounds.minimum)))*.8
+    cameras={
+        'Front':Camera(position=tuple(midpoint+[0,radius*.15,radius]),target=tuple(midpoint)),
+        'Three-quarter':Camera(position=tuple(midpoint+[radius*.8,radius*.3,radius*.8]),target=tuple(midpoint)),
+        'Back':Camera(position=tuple(midpoint+[0,radius*.15,-radius]),target=tuple(midpoint)),
+        'Overhead':Camera(position=tuple(midpoint+[.01,radius,.01]),target=tuple(midpoint)),
+    }
+    baseline=Revision(id='original',label='Original',status='baseline',created_at=timestamp())
+    scene=Scene(id=args.id,title=args.title,description=args.description,
+        assets=[Asset(id='source',label=args.title,kind='splat',path=copy_asset(args.splat,args.id),
+            collider_path=copy_asset(args.collider,args.id) if args.collider else None,
+            provenance='Imported reconstruction; geometric accuracy unverified')],
+        references=[copy_asset(p,args.id) for p in args.reference],
+        video=copy_asset(args.video,args.id) if args.video else None,
+        cameras=cameras,bounds=bounds,revisions=[baseline],current_revision='original',
+        source_kind='object_probe' if args.object_probe else 'captured_room')
+    save_scene(scene)
+    print(json.dumps({'scene':scene.id,'bounds':bounds.model_dump(),'data_dir':str(DATA)},indent=2))
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    commands=parser.add_subparsers(dest='command',required=True)
+    p=commands.add_parser('import-scene');p.add_argument('--id',required=True);p.add_argument('--title',required=True)
+    p.add_argument('--description',default='Imported scene. Source coverage and physical dimensions are unverified.')
+    p.add_argument('--splat',required=True);p.add_argument('--collider');p.add_argument('--reference',action='append',default=[])
+    p.add_argument('--video');p.add_argument('--object-probe',action='store_true');p.add_argument('--bounds',help='JSON [minX,minY,minZ,maxX,maxY,maxZ] for SPZ/RAD or explicit framing')
+    p=commands.add_parser('capture');p.add_argument('scene');p.add_argument('--camera',default='Front');p.add_argument('--revision')
+    p=commands.add_parser('propose');p.add_argument('scene');p.add_argument('edit_file')
+    p=commands.add_parser('decide');p.add_argument('scene');p.add_argument('revision');p.add_argument('--accept',action='store_true');p.add_argument('--reason',required=True)
+    p=commands.add_parser('loop');p.add_argument('scene');p.add_argument('--passes',type=int,default=2)
+    p=commands.add_parser('reconstruct');p.add_argument('image');p.add_argument('--box',required=True,help='JSON [x_min,y_min,x_max,y_max]');p.add_argument('--seed',type=int,default=42)
+    p=commands.add_parser('export');p.add_argument('scene');p.add_argument('output')
+    p=commands.add_parser('align-sam');p.add_argument('scene');p.add_argument('metadata_file');p.add_argument('--asset',default='source')
+    args=parser.parse_args()
+    if args.command=='import-scene':import_scene(args)
+    elif args.command=='capture':
+        from .capture import capture
+        scene=read_scene(args.scene);print(json.dumps(capture(args.scene,args.revision or scene.current_revision,args.camera),indent=2))
+    elif args.command=='propose':print(propose(args.scene,Edit.model_validate_json(Path(args.edit_file).read_text())).model_dump_json(indent=2))
+    elif args.command=='decide':print(decide(args.scene,args.revision,args.accept,{'source':'operator','reason':args.reason}).model_dump_json(indent=2))
+    elif args.command=='loop':
+        from .agent import initialize_tracing,repair_loop
+        initialize_tracing();print(json.dumps(repair_loop(args.scene,args.passes),indent=2))
+    elif args.command=='reconstruct':
+        from .providers import reconstruct
+        box=dict(zip(('x_min','y_min','x_max','y_max'),json.loads(args.box),strict=True))
+        print(json.dumps(reconstruct(Path(args.image),box,args.seed),indent=2))
+    elif args.command=='align-sam':
+        from .alignment import fit
+        from .storage import media_path,event
+        scene=read_scene(args.scene);asset=next(a for a in scene.assets if a.id==args.asset)
+        if not asset.path or not asset.collider_path:raise ValueError('Both splat and collider are required')
+        if len(scene.revisions)>1:raise ValueError('Calibrate before making scene revisions')
+        metadata=json.loads(Path(args.metadata_file).read_text())['metadata'][0]
+        result=fit(media_path(asset.path),media_path(asset.collider_path),metadata)
+        asset.collider_matrix=tuple(result['best']['matrix'])
+        save_scene(scene);event(scene.id,'collider_calibration',result)
+        print(json.dumps(result,indent=2))
+    elif args.command=='export':
+        scene=read_scene(args.scene)
+        destination=Path(args.output).resolve()
+        if destination.exists():raise ValueError('Export destination already exists')
+        # Export a portable scene package with assets and edits, not provider credentials or raw job responses.
+        for path in {p for a in scene.assets for p in (a.path,a.collider_path) if p}|set(scene.references)|({scene.video} if scene.video else set()):
+            from .storage import media_path
+            target=destination/path;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(media_path(path),target)
+        write_json(destination/'scenes'/scene.id/'scene.json',scene.model_dump(mode='json'))
+        print(f'Exported scene package to {destination}; point CLEANROOM_DATA_DIR there to replay')
+
+
+if __name__=='__main__':main()
